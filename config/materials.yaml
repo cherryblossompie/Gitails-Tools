@@ -1,0 +1,48 @@
+# Materials map — user-editable. Drives semantics.py entirely.
+# hatch pattern + keyword -> material. Extend without touching code.
+
+materials:
+  glass:
+    keywords: [glass, glazing, laminated, toughened]
+    qualifiers: [toughened, laminated, clear, low-e, lowe, obscure, tinted]
+  plywood:
+    keywords: [plywood, ply]
+  steel:
+    keywords: [steel, shs, rhs, ub, uc, pfc]
+    profiles: [SHS, RHS, UB, UC, PFC, EA, UA]
+  insulation:
+    keywords: [insul, insulation, batt, batts, earthwool, Bradford, Pink]
+  concrete:
+    keywords: [concrete, conc]
+  timber:
+    keywords: [timber, hardwood, softwood, pine, stud, joist]
+  plasterboard:
+    keywords: [plasterboard, plaster, gwb, gyprock]
+  aluminium:
+    keywords: [aluminium, aluminum, alu]
+
+# Hatch pattern name (upper-case as stored in DXF) -> material.
+# Covers common AutoCAD patterns; add firm-specific ones here.
+hatch_map:
+  ANSI31: steel
+  ANSI32: steel
+  ANSI33: steel
+  ANSI37: steel
+  AR-CONC: concrete
+  AR-SAND: concrete
+  AR-HBONE: concrete
+  EARTH: earth
+  GRASS: earth
+  SOLID: solid
+
+# Known qualifiers searched case-insensitively in annotation strings.
+qualifiers:
+  - toughened
+  - laminated
+  - clear
+  - low-e
+  - lowe
+  - obscure
+  - tinted
+  - fire-rated
+  - acoustic

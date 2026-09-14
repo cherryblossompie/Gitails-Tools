@@ -1,0 +1,18 @@
+# Layer name -> discipline/category map — user-editable.
+# Exact match first, then prefix (*) fallback. Unmatched layers -> category "unknown".
+
+exact:
+  A-DETL-ANNO: {discipline: architectural, category: annotation}
+  A-DETL-GLAZ: {discipline: architectural, category: glazing}
+  A-DETL-CONC: {discipline: architectural, category: concrete}
+  A-DETL-STEL: {discipline: architectural, category: steel}
+  A-DETL-TIMB: {discipline: architectural, category: timber}
+  A-DETL-INSU: {discipline: architectural, category: insulation}
+  Layer 1: {discipline: unknown, category: unknown}
+
+prefixes:
+  A-DETL-: {discipline: architectural, category: detail}
+  A-ANNO-: {discipline: architectural, category: annotation}
+  S-: {discipline: structural, category: structural}
+
+default: {discipline: unknown, category: unknown}

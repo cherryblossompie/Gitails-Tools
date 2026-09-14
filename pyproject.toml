@@ -1,0 +1,28 @@
+[project]
+name = "arcdiff"
+version = "0.1.0"
+description = "Git-backed element-state history for architectural detail drawings"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "ezdxf>=1.3",
+  "click>=8.0",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+arcdiff = "arcdiff.cli:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["arcdiff*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
