@@ -387,7 +387,6 @@ def run(repo=".", db="index.sqlite", drawings_dir="drawings", state_dir="state",
         print(f"  index build failed: {ex}")
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     srv.gitail_ctx = ctx
-    print(f"gitail serve: http://localhost:{port}  (repo={repo} db={db})")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
