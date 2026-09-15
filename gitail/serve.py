@@ -148,15 +148,19 @@ class Handler(BaseHTTPRequestHandler):
 def _meta(ctx) -> dict:
     from .query import distinct
     db = Path(ctx["db"])
+    meta = {"repo": str(Path(ctx["repo"]).resolve()),
+            "git": bool((Path(ctx["repo"]) / ".git").exists()),
+            "projects": [], "materials": [], "drawings": [], "texts": []}
     if not db.exists():
-        return {"projects": [], "materials": [], "drawings": [], "texts": []}
+        return meta
     try:
-        return {"projects": distinct(db, "project"),
-                "materials": distinct(db, "material"),
-                "drawings": distinct(db, "drawing"),
-                "texts": distinct(db, "text_raw")}
+        meta.update({"projects": distinct(db, "project"),
+                     "materials": distinct(db, "material"),
+                     "drawings": distinct(db, "drawing"),
+                     "texts": distinct(db, "text_raw")})
     except Exception:
-        return {"projects": [], "materials": [], "drawings": [], "texts": []}
+        pass
+    return meta
 
 
 def _search(ctx, query) -> list:
@@ -193,7 +197,7 @@ def _history(ctx, query) -> list:
 
 
 def _ingest_dxf(ctx, dxf: Path) -> dict:
-    """extract + render + reindex for one uploaded DXF (no git commit)."""
+    """extract + render + auto-commit + reindex for one uploaded DXF."""
     import json as _json
     from .extract import extract_state
     from .identity import resolve
@@ -225,11 +229,13 @@ def _ingest_dxf(ctx, dxf: Path) -> dict:
     si.write_text(_json.dumps(new_idmap, sort_keys=True, indent=2, ensure_ascii=False) + "\n",
                   encoding="utf-8", newline="\n")
     pdf_ok = render_dxf_to_pdf(dxf, pdf_dir / (drawing + ".pdf"))
-    committed = False
+    committed: bool | str = False
     try:
         import subprocess
         repo_p = Path(ctx["repo"])
-        if (repo_p / ".git").exists():
+        if not (repo_p / ".git").exists():
+            committed = f"not a git repo ({repo_p}) — restart serve from the drawings repo root"
+        else:
             paths = [str(Path(ctx["drawings_dir"]) / (drawing + ".dxf")),
                      str(sj), str(si), str(pdf_dir / (drawing + ".pdf"))]
             # git add only existing paths, relative to repo for safety
@@ -241,15 +247,17 @@ def _ingest_dxf(ctx, dxf: Path) -> dict:
                         rel.append(pp.resolve().relative_to(repo_p.resolve()).as_posix())
                     except ValueError:
                         rel.append(p)
-            if rel:
+            if not rel:
+                committed = "nothing to commit (unexpected)"
+            else:
                 subprocess.run(["git", "-C", str(repo_p), "add", "--", *rel],
-                               check=True, capture_output=True)
-                subprocess.run(["git", "-C", str(repo_p), "commit", "-m",
-                                f"Upload {drawing} via gitail serve"],
-                               check=True, capture_output=True)
-                committed = True
-    except Exception:
-        committed = False
+                               check=True, capture_output=True, text=True)
+                r = subprocess.run(["git", "-C", str(repo_p), "commit", "-m",
+                                    f"Upload {drawing} via gitail serve"],
+                                   capture_output=True, text=True)
+                committed = True if r.returncode == 0 else f"git commit failed: {(r.stderr or r.stdout).strip()[:200]}"
+    except Exception as ex:
+        committed = f"git error: {ex}"
     idx = build_index(Path(ctx["repo"]), Path(ctx["db"]))
     from collections import Counter
     return {"drawing": drawing, "project": drawing.split("/")[0] if "/" in drawing else "",
@@ -282,7 +290,8 @@ a.dxf{font-weight:600}
 pre{white-space:pre-wrap}
 </style></head><body>
 <header><h2 style="margin:0">gitail — live search + upload</h2>
-<div style="opacity:.75;font-size:13px">Reads <code>index.sqlite</code> directly. Uploads save into <code>drawings/&lt;project&gt;/</code>, then extract + render + reindex automatically.</div></header>
+<div style="opacity:.75;font-size:13px">Reads <code>index.sqlite</code> directly. Uploads save into <code>drawings/&lt;project&gt;/</code>, then extract + render + reindex automatically.</div>
+<div id="repo" style="opacity:.6;font-size:12px;margin-top:4px"></div></header>
 <main>
 <div class="card"><h3 style="margin-top:0">Add a drawing</h3>
 <div class="filters">
@@ -315,6 +324,7 @@ async function meta(){
   fill('dl-mat',m.materials||[]);fill('dl-drw',m.drawings||[]);fill('dl-text',(m.texts||[]).slice(0,300));
   $('proj').innerHTML='<option value="">All projects</option>'+(m.projects||[]).map(p=>`<option>${esc(p)}</option>`).join('');
   $('uproj').innerHTML='<option value="">(no project — drawings/ root)</option>'+(m.projects||[]).map(p=>`<option>${esc(p)}</option>`).join('');
+  $('repo').textContent='repo: '+(m.repo||'?')+(m.git?'':'  ⚠️ NOT A GIT REPO — restart serve from the drawings repo root');
 }
 async function search(){
   const p=new URLSearchParams({project:$('proj').value,material:$('mat').value,value:$('val').value,
@@ -338,7 +348,12 @@ $('ubtn').addEventListener('click',async()=>{
   $('umsg').textContent='Uploading…';
   const r=await fetch('/api/upload',{method:'POST',body:fd});
   const t=await r.text();
-  $('umsg').textContent=(r.ok?'OK ':'FAILED '+r.status+' ')+t;
+  let summary=t;
+  try{const j=JSON.parse(t);
+    summary=(r.ok?'OK ':'FAILED ')+j.drawing+' — '+j.elements+' element(s), pdf: '+(j.pdf?'yes':'FAILED')
+      +(j.committed===true?' — saved to search index':(' — NOT INDEXED: '+j.committed));
+  }catch(e){summary=(r.ok?'OK ':'FAILED '+r.status+' ')+t;}
+  $('umsg').textContent=summary;
   await meta();await search();
 });
 meta().then(search);
@@ -348,15 +363,28 @@ meta().then(search);
 
 def run(repo=".", db="index.sqlite", drawings_dir="drawings", state_dir="state",
         pdf_dir="pdf", config_dir="config", port=8000):
-    ctx = {"repo": str(repo), "db": str(db), "drawings_dir": str(drawings_dir),
-           "state_dir": str(state_dir), "pdf_dir": str(pdf_dir), "config_dir": str(config_dir)}
+    # Absolute paths: the server must run from the drawings repo root, and the
+    # printed repo line makes a wrong-folder start obvious immediately.
+    repo_p = Path(repo).resolve()
+
+    def _abs(p):
+        pp = Path(p)
+        return str((repo_p / pp).resolve() if not pp.is_absolute() else pp)
+    ctx = {"repo": str(repo_p), "db": _abs(db), "drawings_dir": _abs(drawings_dir),
+           "state_dir": _abs(state_dir), "pdf_dir": _abs(pdf_dir),
+           "config_dir": str(config_dir)}
+    print(f"gitail serve: http://localhost:{port}")
+    print(f"  repo: {ctx['repo']}")
+    if not (repo_p / ".git").exists():
+        print("  WARNING: not a git repo — uploads will save but NOT be indexed. "
+              "Restart from the drawings repo root.")
     # build the index on startup so search works immediately
     try:
         from .index import build_index
-        if Path(repo, ".git").exists():
-            build_index(Path(repo), Path(db))
-    except Exception:
-        pass
+        if (repo_p / ".git").exists():
+            print("  index:", build_index(repo_p, Path(ctx["db"])))
+    except Exception as ex:
+        print(f"  index build failed: {ex}")
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     srv.gitail_ctx = ctx
     print(f"gitail serve: http://localhost:{port}  (repo={repo} db={db})")

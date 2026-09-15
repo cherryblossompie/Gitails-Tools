@@ -70,11 +70,14 @@ def test_serve_search_and_upload(tmp_path):
     try:
         code, body = _get(base, "/api/meta")
         assert code == 200
+        meta = json.loads(body)
+        assert meta["git"] is True and Path(meta["repo"]) == repo
         # upload a DXF into project StageC — no manual commands
         code, body = _post_multipart(base, "StageC", "D-9.dxf", _dxf_bytes("6mm GLASS"))
         assert code == 200, body[:300]
         resp = json.loads(body)
         assert resp["drawing"] == "StageC/D-9"
+        assert resp["committed"] is True
         assert (repo / "drawings" / "StageC" / "D-9.dxf").exists()
         assert (repo / "state" / "StageC" / "D-9.jsonl").exists()
         assert (repo / "pdf" / "StageC" / "D-9.pdf").exists()
@@ -84,5 +87,24 @@ def test_serve_search_and_upload(tmp_path):
         assert any(x["drawing"] == "StageC/D-9" for x in rows)
         code, _ = _get(base, "/pdf/StageC/D-9.pdf")
         assert code == 200
+    finally:
+        srv.shutdown()
+
+
+def test_serve_upload_outside_repo_explains_itself(tmp_path):
+    plain = tmp_path / "notarepo"
+    (plain / "drawings").mkdir(parents=True)
+    ctx = {"repo": str(plain), "db": str(plain / "index.sqlite"),
+           "drawings_dir": str(plain / "drawings"), "state_dir": str(plain / "state"),
+           "pdf_dir": str(plain / "pdf"), "config_dir": str(Path(__file__).parent.parent / "config")}
+    srv = _start(ctx)
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+    try:
+        code, body = _get(base, "/api/meta")
+        assert json.loads(body)["git"] is False
+        code, body = _post_multipart(base, "", "D-1.dxf", _dxf_bytes())
+        assert code == 200
+        resp = json.loads(body)
+        assert resp["committed"] != True and "not a git repo" in str(resp["committed"])
     finally:
         srv.shutdown()
