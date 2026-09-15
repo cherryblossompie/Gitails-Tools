@@ -110,7 +110,7 @@ def history(db: Path, element_id: str) -> list[dict]:
     con = _con(db)
     sel = _select(con)
     rows = [dict(r) for r in con.execute(
-        f"SELECT {sel} FROM element_state WHERE element_id=? ORDER BY commit_date",
+        f"SELECT {sel} FROM element_state WHERE element_id=? ORDER BY rowid",
         (element_id,))]
     con.close()
     for r in rows:
