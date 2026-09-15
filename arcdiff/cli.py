@@ -40,20 +40,30 @@ def cli():
 @click.argument("dxf_path", type=click.Path(exists=True, dir_okay=False))
 @click.option("--state-dir", default="state")
 @click.option("--config-dir", default="config")
+@click.option("--drawings-dir", default="drawings",
+              help="Drawings root — used to derive project/drawing ids (drawings/<project>/X.dxf)")
 @click.option("--tolerance", default=DEFAULT_TOLERANCE_MM, type=float)
 @click.option("--check", is_flag=True,
               help="CI mode: fail if committed state/*.jsonl is out of sync (no writes)")
-def extract(dxf_path, state_dir, config_dir, tolerance, check):
+def extract(dxf_path, state_dir, config_dir, drawings_dir, tolerance, check):
     """Extract DXF canonical state, resolve identity, write state files."""
     dxf_path = Path(dxf_path)
     state_dir = Path(state_dir)
     config_dir = Path(config_dir)
-    drawing = dxf_path.stem
+    # drawing id: path relative to drawings/ without suffix, posix.
+    # drawings/D-101.dxf -> 'D-101'; drawings/StageC/D-101.dxf -> 'StageC/D-101'.
+    try:
+        rel = dxf_path.resolve().relative_to(Path(drawings_dir).resolve())
+        drawing = rel.with_suffix("").as_posix()
+    except ValueError:
+        drawing = dxf_path.stem
+    state_jsonl = state_dir / (drawing + ".jsonl")
+    state_idmap = state_dir / (drawing + ".idmap.json")
 
     materials_cfg = load_materials(config_dir / "materials.yaml") if (config_dir / "materials.yaml").exists() else {}
     current_raw = extract_state(dxf_path, materials_cfg)
-    prev = _load_jsonl(state_dir / f"{drawing}.jsonl") if state_dir.exists() else []
-    idmap = _load_idmap(state_dir / f"{drawing}.idmap.json", drawing) if state_dir.exists() else {"drawing": drawing, "elements": {}}
+    prev = _load_jsonl(state_jsonl) if state_jsonl.exists() else []
+    idmap = _load_idmap(state_idmap, drawing) if state_idmap.exists() else {"drawing": drawing, "elements": {}}
     resolved, new_idmap, event, fuzzy = resolve(current_raw, prev, idmap, tolerance=tolerance)
 
     EPHEMERAL = ("status", "match_tier", "match_confidence")
@@ -63,17 +73,17 @@ def extract(dxf_path, state_dir, config_dir, tolerance, check):
     new_text = "".join(json.dumps(r, sort_keys=True, ensure_ascii=False) + "\n" for r in storable)
 
     if check:
-        old = (state_dir / f"{drawing}.jsonl").read_text(encoding="utf-8") if (state_dir / f"{drawing}.jsonl").exists() else ""
+        old = state_jsonl.read_text(encoding="utf-8") if state_jsonl.exists() else ""
         if old != new_text:
             click.echo(f"OUT OF SYNC: {drawing}.dxf changed without re-running extract", err=True)
             raise SystemExit(1)
         click.echo(f"{drawing}: in sync ({len(storable)} elements)")
         return
 
-    state_dir.mkdir(parents=True, exist_ok=True)
-    with open(state_dir / f"{drawing}.jsonl", "w", encoding="utf-8", newline="\n") as f:
+    state_jsonl.parent.mkdir(parents=True, exist_ok=True)
+    with open(state_jsonl, "w", encoding="utf-8", newline="\n") as f:
         f.write(new_text)
-    with open(state_dir / f"{drawing}.idmap.json", "w", encoding="utf-8", newline="\n") as f:
+    with open(state_idmap, "w", encoding="utf-8", newline="\n") as f:
         json.dump(new_idmap, f, sort_keys=True, indent=2, ensure_ascii=False)
         f.write("\n")
 
@@ -104,7 +114,7 @@ def _short(v):
     return v[:7] if len(v) == 40 and all(ch in "0123456789abcdef" for ch in v.lower()) else v
 
 
-def _table(rows: list[dict], cols=("drawing", "element_id", "material", "value", "text_raw", "status", "commit_sha", "author")):
+def _table(rows: list[dict], cols=("project", "drawing", "element_id", "material", "value", "text_raw", "status", "commit_sha", "author")):
     disp = [{**r, "commit_sha": _short(r.get("commit_sha"))} for r in rows]
     widths = {c: max([len(c)] + [len(str(r.get(c) or "")) for r in disp]) for c in cols}
     click.echo("  ".join(c.ljust(widths[c]) for c in cols))
@@ -117,13 +127,15 @@ def _table(rows: list[dict], cols=("drawing", "element_id", "material", "value",
 @click.option("--value", default=None, type=float)
 @click.option("--text", "text_q", default=None)
 @click.option("--drawing", default=None)
+@click.option("--project", default=None, help="Project folder under drawings/ (e.g. StageC)")
 @click.option("--ever", is_flag=True, help="Search all historical states, not just current")
 @click.option("--json", "as_json", is_flag=True)
 @click.option("--db", default="index.sqlite")
-def find_cmd(material, value, text_q, drawing, ever, as_json, db):
+def find_cmd(material, value, text_q, drawing, project, ever, as_json, db):
     """Search elements. Default: current state. --ever: full history."""
     from .query import find
-    rows = find(Path(db), material=material, value=value, text=text_q, drawing=drawing, ever=ever)
+    rows = find(Path(db), material=material, value=value, text=text_q,
+                drawing=drawing, project=project, ever=ever)
     if as_json:
         click.echo(json.dumps(rows, indent=2, ensure_ascii=False))
     elif not rows:

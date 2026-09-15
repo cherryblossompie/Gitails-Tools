@@ -43,6 +43,21 @@ CREATE INDEX IF NOT EXISTS idx_drawing ON element_state(drawing);
 CREATE INDEX IF NOT EXISTS idx_date ON element_state(commit_date);
 """
 
+MIGRATE_PROJECT = "ALTER TABLE element_state ADD COLUMN project TEXT"
+IDX_PROJECT = "CREATE INDEX IF NOT EXISTS idx_project ON element_state(project)"
+
+
+def _drawing_and_project(state_path: str, state_dir: str = "state") -> tuple[str, str]:
+    """state/A/D-101.jsonl -> drawing 'A/D-101', project 'A'. Flat stays 'D-101'/''."""
+    rel = Path(state_path)
+    try:
+        rel = rel.relative_to(state_dir)
+    except ValueError:
+        pass
+    drawing = rel.with_suffix("").as_posix()
+    project = drawing.split("/")[0] if "/" in drawing else ""
+    return drawing, project
+
 
 def _git(repo: Path, *args: str) -> str:
     r = subprocess.run(["git", "-C", str(repo), *args],
@@ -106,6 +121,11 @@ def build_index(repo: Path, db_path: Path, state_dir: str = "state") -> dict:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(str(db_path))
     con.executescript(SCHEMA)
+    try:
+        con.execute(MIGRATE_PROJECT)
+    except sqlite3.OperationalError:
+        pass  # column already exists on re-run
+    con.execute(IDX_PROJECT)
     done = {r[0] for r in con.execute("SELECT commit_sha FROM indexed_commits")}
     commits = _commits(repo)
     # drop rows for commits no longer in history (rewrite/force-push safety)
@@ -126,7 +146,7 @@ def build_index(repo: Path, db_path: Path, state_dir: str = "state") -> dict:
         # load current snapshots for status chaining regardless of indexed state
         cur_by_drawing: dict[str, dict[str, dict]] = {}
         for f in files:
-            drawing = Path(f).stem
+            drawing, _proj = _drawing_and_project(f, state_dir)
             rows = _read_blob(repo, sha, f)
             cur_by_drawing[drawing] = {r.get("element_id"): r for r in rows if r.get("element_id")}
         if sha in done:
@@ -134,6 +154,7 @@ def build_index(repo: Path, db_path: Path, state_dir: str = "state") -> dict:
             continue
         # insert this commit
         for drawing, cur in cur_by_drawing.items():
+            project = drawing.split("/")[0] if "/" in drawing else ""
             prev = prev_by_drawing.get(drawing, {})
             # live rows
             for eid, rec in cur.items():
@@ -141,10 +162,10 @@ def build_index(repo: Path, db_path: Path, state_dir: str = "state") -> dict:
                 parsed = rec.get("parsed") or {}
                 con.execute(
                     "INSERT OR REPLACE INTO element_state "
-                    "(element_id,commit_sha,commit_date,author,commit_message,drawing,"
+                    "(element_id,commit_sha,commit_date,author,commit_message,drawing,project,"
                     " type,layer,material,value,unit,text_raw,x,y,status,match_tier,match_confidence)"
-                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (eid, sha, c["date"], c["author"], c["message"], drawing,
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (eid, sha, c["date"], c["author"], c["message"], drawing, project,
                      rec.get("type"), rec.get("layer"),
                      parsed.get("material"), parsed.get("value"), parsed.get("unit"),
                      rec.get("text_raw"),
@@ -159,10 +180,10 @@ def build_index(repo: Path, db_path: Path, state_dir: str = "state") -> dict:
                     p = prec.get("parsed") or {}
                     con.execute(
                         "INSERT OR REPLACE INTO element_state "
-                        "(element_id,commit_sha,commit_date,author,commit_message,drawing,"
+                        "(element_id,commit_sha,commit_date,author,commit_message,drawing,project,"
                         " type,layer,material,value,unit,text_raw,x,y,status,match_tier,match_confidence)"
-                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                        (eid, sha, c["date"], c["author"], c["message"], drawing,
+                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (eid, sha, c["date"], c["author"], c["message"], drawing, project,
                          prec.get("type"), prec.get("layer"),
                          p.get("material"), p.get("value"), p.get("unit"),
                          prec.get("text_raw"),
@@ -172,14 +193,15 @@ def build_index(repo: Path, db_path: Path, state_dir: str = "state") -> dict:
         # drawings that vanished entirely: all prev ids -> deleted
         for drawing, prev in prev_by_drawing.items():
             if drawing not in cur_by_drawing:
+                project = drawing.split("/")[0] if "/" in drawing else ""
                 for eid, prec in prev.items():
                     p = prec.get("parsed") or {}
                     con.execute(
                         "INSERT OR REPLACE INTO element_state "
-                        "(element_id,commit_sha,commit_date,author,commit_message,drawing,"
+                        "(element_id,commit_sha,commit_date,author,commit_message,drawing,project,"
                         " type,layer,material,value,unit,text_raw,x,y,status,match_tier,match_confidence)"
-                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                        (eid, sha, c["date"], c["author"], c["message"], drawing,
+                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (eid, sha, c["date"], c["author"], c["message"], drawing, project,
                          prec.get("type"), prec.get("layer"),
                          p.get("material"), p.get("value"), p.get("unit"),
                          prec.get("text_raw"),
