@@ -3,8 +3,8 @@ from pathlib import Path
 
 import ezdxf
 
-from arcdiff.render import check_all, render_all, render_dxf_to_pdf
-from arcdiff.report import write_html
+from gitail.render import check_all, render_all, render_dxf_to_pdf
+from gitail.report import write_html
 
 
 def _dxf(path: Path, text="3mm GLASS"):

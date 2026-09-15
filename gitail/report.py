@@ -81,7 +81,7 @@ def write_markdown(db: Path, out: Path) -> Path:
     con.row_factory = sqlite3.Row
     out = Path(out)
     with open(out, "w", encoding="utf-8", newline="\n") as f:
-        f.write("# arcdiff report\n\n")
+        f.write("# gitail report\n\n")
         for d in con.execute("SELECT DISTINCT drawing FROM element_state ORDER BY drawing"):
             f.write(f"## {d['drawing']}\n\n")
             f.write(f"Drawing file: `drawings/{d['drawing']}.dxf`\n\n")
@@ -115,7 +115,7 @@ def write_html(db: Path, out: Path, pdf_dir: Path = Path("pdf"),
     page = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>arcdiff — element-state search</title>
+<title>gitail — element-state search</title>
 <style>
 body{{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:0;background:#fafafa;color:#222}}
 header{{background:#111;color:#fff;padding:14px 18px}}
@@ -131,7 +131,7 @@ code{{background:#eee;padding:1px 4px;border-radius:4px}}
 .hint{{font-size:13px;color:#555}}
 a.dxf{{font-weight:600}}
 </style></head><body>
-<header><h2 style="margin:0">arcdiff — search element history</h2>
+<header><h2 style="margin:0">gitail — search element history</h2>
 <div style="opacity:.75;font-size:13px">Static report, no server. Type to get suggestions — e.g. material <code>c</code> → concrete. Click a drawing to open its <b>PDF</b> (rendered view); <code>dxf</code> is the text source.</div></header>
 <main>
 <div class="filters">
@@ -152,7 +152,7 @@ a.dxf{{font-weight:600}}
 UNINDEXED_SECTION
 <div class="card">
 <h3 style="margin-top:0">Add a drawing</h3>
-<div class="hint">Prefer one-click upload? Run <code>arcdiff serve</code> in the drawings repo and open <code>http://localhost:8000</code> — files + index update directly. Manual fallback below.</div>
+<div class="hint">Prefer one-click upload? Run <code>gitail serve</code> in the drawings repo and open <code>http://localhost:8000</code> — files + index update directly. Manual fallback below.</div>
 <div class="filters">
 <select id="add-proj"><option value="">(no project — drawings/ root)</option>{''.join(f'<option>{p}</option>' for p in projects)}<option value="__new__">+ New project…</option></select>
 <input id="add-newproj" placeholder="new project name" style="display:none;min-width:160px">
@@ -203,8 +203,8 @@ function hint(){{
   const dest=p?('drawings/'+p+'/'+f.name):('drawings/'+f.name);
   addCmds.textContent='1. copy file → '+dest+'\\n'
     +'   (.dwg? export to ASCII DXF R2018+ first — DWG is never parsed. .pdf alone is view-only.)\\n'
-    +'2. C:\\\\AI\\\\python.exe -m arcdiff.cli extract '+dest+' --state-dir state --config-dir ..\\\\Gitails-Tools\\\\config\\n'
-    +'3. C:\\\\AI\\\\python.exe -m arcdiff.cli render --drawings-dir drawings --pdf-dir pdf'
+    +'2. C:\\\\AI\\\\python.exe -m gitail.cli extract '+dest+' --state-dir state --config-dir ..\\\\Gitails-Tools\\\\config\\n'
+    +'3. C:\\\\AI\\\\python.exe -m gitail.cli render --drawings-dir drawings --pdf-dir pdf'
     +'   (makes pdf/… .pdf so links open the drawing, not code)\\n'
     +'4. git add '+dest+' state\\ pdf\\n   git commit -m "Add '+f.name+(p?(' to '+p):'')+'"';
 }}

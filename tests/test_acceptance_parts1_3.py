@@ -16,10 +16,10 @@ import ezdxf
 import pytest
 from click.testing import CliRunner
 
-from arcdiff.cli import cli
-from arcdiff.extract import extract_state
-from arcdiff.identity import resolve
-from arcdiff.semantics import load_materials, parse_text
+from gitail.cli import cli
+from gitail.extract import extract_state
+from gitail.identity import resolve
+from gitail.semantics import load_materials, parse_text
 
 CFG = Path(__file__).parent.parent / "config" / "materials.yaml"
 

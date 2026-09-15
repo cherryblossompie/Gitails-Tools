@@ -2,11 +2,11 @@
 uploads save straight into drawings/<project>/ + extract + render + reindex.
 
 The static report.html stays the CI/brief-compliant surface (file:// friendly).
-`arcdiff serve` is the convenience alternative when you want the page itself
+`gitail serve` is the convenience alternative when you want the page itself
 to write — no manual copy/extract commands.
 
 Usage (from the DRAWINGS repo root):
-    arcdiff serve --repo . --db index.sqlite --port 8000
+    gitail serve --repo . --db index.sqlite --port 8000
 then open http://localhost:8000
 """
 from __future__ import annotations
@@ -24,11 +24,11 @@ SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.\-]{0,120}\.(dxf|dwg|pdf)$"
 
 
 def _ctx(server) -> dict:
-    return server.arcdiff_ctx
+    return server.gitail_ctx
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "arcdiff-serve/0.1"
+    server_version = "gitail-serve/0.1"
 
     # -- routing ---------------------------------------------------------
     def do_GET(self):
@@ -245,7 +245,7 @@ def _ingest_dxf(ctx, dxf: Path) -> dict:
                 subprocess.run(["git", "-C", str(repo_p), "add", "--", *rel],
                                check=True, capture_output=True)
                 subprocess.run(["git", "-C", str(repo_p), "commit", "-m",
-                                f"Upload {drawing} via arcdiff serve"],
+                                f"Upload {drawing} via gitail serve"],
                                check=True, capture_output=True)
                 committed = True
     except Exception:
@@ -263,7 +263,7 @@ def _ingest_dxf(ctx, dxf: Path) -> dict:
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>arcdiff — live search + upload</title>
+<title>gitail — live search + upload</title>
 <style>
 body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:0;background:#fafafa;color:#222}
 header{background:#111;color:#fff;padding:14px 18px}
@@ -281,7 +281,7 @@ code{background:#eee;padding:1px 4px;border-radius:4px}
 a.dxf{font-weight:600}
 pre{white-space:pre-wrap}
 </style></head><body>
-<header><h2 style="margin:0">arcdiff — live search + upload</h2>
+<header><h2 style="margin:0">gitail — live search + upload</h2>
 <div style="opacity:.75;font-size:13px">Reads <code>index.sqlite</code> directly. Uploads save into <code>drawings/&lt;project&gt;/</code>, then extract + render + reindex automatically.</div></header>
 <main>
 <div class="card"><h3 style="margin-top:0">Add a drawing</h3>
@@ -358,8 +358,8 @@ def run(repo=".", db="index.sqlite", drawings_dir="drawings", state_dir="state",
     except Exception:
         pass
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    srv.arcdiff_ctx = ctx
-    print(f"arcdiff serve: http://localhost:{port}  (repo={repo} db={db})")
+    srv.gitail_ctx = ctx
+    print(f"gitail serve: http://localhost:{port}  (repo={repo} db={db})")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

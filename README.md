@@ -1,25 +1,25 @@
-# Gitails-Tools — arcdiff (Parts 1–6)
+# Gitails-Tools — gitail (Parts 1–6)
 
 Git-backed element-state history for AutoCAD detail drawings.
 Brief: `../arcdiff-opencode-brief.md` (kept in parent `gitails/` folder).
 
 ## Modules
 
-* `arcdiff/extract.py` (Part 1) — DXF → canonical state (0.1mm rounding, deterministic sort)
-* `arcdiff/identity.py` (Part 2) — 4-tier identity + global translation normalisation
-* `arcdiff/semantics.py` (Part 3) — annotation + hatch parsing from `config/materials.yaml`
-* `arcdiff/index.py` (Part 4) — git log of `state/*.jsonl` → `index.sqlite` (incremental)
-* `arcdiff/query.py` + CLI (Part 5) — `find` / `history` / `at` / `changed`
-* `arcdiff/report.py` — static HTML search page (no server) + markdown
-* `arcdiff/render.py` — DXF → PDF previews for viewing (never parsed)
-* `arcdiff/serve.py` — optional live server: reads index.sqlite directly, uploads save straight in
+* `gitail/extract.py` (Part 1) — DXF → canonical state (0.1mm rounding, deterministic sort)
+* `gitail/identity.py` (Part 2) — 4-tier identity + global translation normalisation
+* `gitail/semantics.py` (Part 3) — annotation + hatch parsing from `config/materials.yaml`
+* `gitail/index.py` (Part 4) — git log of `state/*.jsonl` → `index.sqlite` (incremental)
+* `gitail/query.py` + CLI (Part 5) — `find` / `history` / `at` / `changed`
+* `gitail/report.py` — static HTML search page (no server) + markdown
+* `gitail/render.py` — DXF → PDF previews for viewing (never parsed)
+* `gitail/serve.py` — optional live server: reads index.sqlite directly, uploads save straight in
 * Part 6 — `.github/workflows/ci.yml` here; PR review workflow lives in Gitails-DRAWINGS
 
 ## Drafter workflow (single command, runs locally)
 
 ```bash
 pip install -e .
-arcdiff extract <drawings-repo>/drawings/D-101.dxf --state-dir <drawings-repo>/state --config-dir config
+gitail extract <drawings-repo>/drawings/D-101.dxf --state-dir <drawings-repo>/state --config-dir config
 ```
 
 Commits `state/D-101.jsonl` + `state/D-101.idmap.json` alongside the DXF.
@@ -31,18 +31,18 @@ No server, no web app. Two surfaces:
 
 ```bash
 # the brief's query — every drawing ever glazed 3mm, with revision + new value:
-arcdiff index --repo <drawings-repo> --db index.sqlite
-arcdiff find --db index.sqlite --material glass --value 3 --ever
-arcdiff history e_9125db --db index.sqlite
-arcdiff changed --from <shaA> --to <shaB> --db index.sqlite
-arcdiff find --db index.sqlite --text TOUGHENED --json
+gitail index --repo <drawings-repo> --db index.sqlite
+gitail find --db index.sqlite --material glass --value 3 --ever
+gitail history e_9125db --db index.sqlite
+gitail changed --from <shaA> --to <shaB> --db index.sqlite
+gitail find --db index.sqlite --text TOUGHENED --json
 
 # static page — open in a browser, filter locally (material/value/text/drawing + ever):
-arcdiff report --db index.sqlite --html report.html
+gitail report --db index.sqlite --html report.html
 # live page — reads index.sqlite directly; uploads save into drawings/<project>/ + reindex:
-cd <drawings-repo> && arcdiff serve --port 8000   # open http://localhost:8000
+cd <drawings-repo> && gitail serve --port 8000   # open http://localhost:8000
 # viewable PDFs — browsers show DXF as text, so render previews (viewing only):
-arcdiff render --drawings-dir <drawings-repo>/drawings --pdf-dir <drawings-repo>/pdf
+gitail render --drawings-dir <drawings-repo>/drawings --pdf-dir <drawings-repo>/pdf
 ```
 
 `index.sqlite` is derived, never committed. `report.html` is generated on demand

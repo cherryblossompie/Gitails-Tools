@@ -9,7 +9,7 @@ from pathlib import Path
 
 import ezdxf
 
-from arcdiff.serve import Handler, _ingest_dxf
+from gitail.serve import Handler, _ingest_dxf
 from http.server import ThreadingHTTPServer
 
 
@@ -25,7 +25,7 @@ def _dxf_bytes(text="3mm GLASS"):
 
 def _start(ctx):
     srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    srv.arcdiff_ctx = ctx
+    srv.gitail_ctx = ctx
     t = threading.Thread(target=srv.serve_forever, daemon=True)
     t.start()
     return srv

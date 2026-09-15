@@ -245,7 +245,7 @@ def render_cmd(drawings_dir, pdf_dir, force, check):
         missing = check_all(Path(drawings_dir), Path(pdf_dir))
         if missing:
             click.echo(f"PDF previews missing/outdated for: {', '.join(missing)}", err=True)
-            click.echo("Run: arcdiff render --drawings-dir drawings --pdf-dir pdf", err=True)
+            click.echo("Run: gitail render --drawings-dir drawings --pdf-dir pdf", err=True)
             raise SystemExit(1)
         click.echo(f"pdf previews in sync")
         return

@@ -5,13 +5,13 @@ from pathlib import Path
 
 import ezdxf
 
-from arcdiff.cli import cli
-from arcdiff.extract import extract_state
-from arcdiff.identity import resolve
-from arcdiff.index import build_index
-from arcdiff.query import at, changed, find, history
-from arcdiff.report import write_html, write_markdown
-from arcdiff.semantics import load_materials
+from gitail.cli import cli
+from gitail.extract import extract_state
+from gitail.identity import resolve
+from gitail.index import build_index
+from gitail.query import at, changed, find, history
+from gitail.report import write_html, write_markdown
+from gitail.semantics import load_materials
 from click.testing import CliRunner
 
 CFG = Path(__file__).parent.parent / "config" / "materials.yaml"
@@ -42,7 +42,7 @@ def write_dxf(path: Path, glass="3mm GLASS"):
 
 
 def extract_to_repo(dxf: Path, repo: Path):
-    from arcdiff.cli import _load_idmap, _load_jsonl
+    from gitail.cli import _load_idmap, _load_jsonl
     cfg = load_materials(CFG)
     drawing = dxf.stem
     raw = extract_state(dxf, cfg)

@@ -1,5 +1,5 @@
 [project]
-name = "arcdiff"
+name = "gitail"
 version = "0.1.0"
 description = "Git-backed element-state history for architectural detail drawings"
 readme = "README.md"
@@ -15,7 +15,8 @@ dependencies = [
 dev = ["pytest>=7.0"]
 
 [project.scripts]
-arcdiff = "arcdiff.cli:main"
+gitail = "gitail.cli:main"
+arcdiff = "gitail.cli:main"
 
 [build-system]
 requires = ["setuptools>=61"]
@@ -23,7 +24,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["arcdiff*"]
+include = ["gitail*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
