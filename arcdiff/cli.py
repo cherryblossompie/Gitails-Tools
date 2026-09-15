@@ -260,6 +260,20 @@ def render_cmd(drawings_dir, pdf_dir, force, check):
         raise SystemExit(1)
 
 
+@cli.command("serve")
+@click.option("--repo", default=".", help="Drawing repository root")
+@click.option("--db", default="index.sqlite")
+@click.option("--drawings-dir", default="drawings")
+@click.option("--state-dir", default="state")
+@click.option("--pdf-dir", default="pdf")
+@click.option("--config-dir", default="config")
+@click.option("--port", default=8000, type=int)
+def serve_cmd(repo, db, drawings_dir, state_dir, pdf_dir, config_dir, port):
+    """Live search + direct upload (reads index.sqlite, writes drawings/)."""
+    from .serve import run
+    run(repo, db, drawings_dir, state_dir, pdf_dir, config_dir, port)
+
+
 def main():
     cli()
 

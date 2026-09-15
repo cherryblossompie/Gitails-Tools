@@ -151,8 +151,8 @@ a.dxf{{font-weight:600}}
 </tr></thead><tbody id="body"></tbody></table>
 UNINDEXED_SECTION
 <div class="card">
-<h3 style="margin-top:0">Add a drawing (where do I input?)</h3>
-<div class="hint">Static pages cannot save files — pick the project + file here, run the 3 commands it prints in <code>Gitails-DRAWINGS</code>.</div>
+<h3 style="margin-top:0">Add a drawing</h3>
+<div class="hint">Prefer one-click upload? Run <code>arcdiff serve</code> in the drawings repo and open <code>http://localhost:8000</code> — files + index update directly. Manual fallback below.</div>
 <div class="filters">
 <select id="add-proj"><option value="">(no project — drawings/ root)</option>{''.join(f'<option>{p}</option>' for p in projects)}<option value="__new__">+ New project…</option></select>
 <input id="add-newproj" placeholder="new project name" style="display:none;min-width:160px">
