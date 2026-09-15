@@ -15,13 +15,15 @@ import sqlite3
 from pathlib import Path
 
 GITHUB_DRAWINGS_BASE = "https://github.com/cherryblossompie/Gitails-DRAWINGS/blob/main/drawings"
+GITHUB_PDF_BASE = "https://github.com/cherryblossompie/Gitails-DRAWINGS/blob/main/pdf"
 
 
 def _cols(con) -> list[str]:
     return [r[1] for r in con.execute("PRAGMA table_info(element_state)").fetchall()]
 
 
-def _rows(db: Path) -> list[dict]:
+def _rows(db: Path, pdf_base: str = GITHUB_PDF_BASE,
+          dxf_base: str = GITHUB_DRAWINGS_BASE) -> tuple[list, list, list, list, list]:
     con = sqlite3.connect(str(db))
     con.row_factory = sqlite3.Row
     have = set(_cols(con))
@@ -42,8 +44,11 @@ def _rows(db: Path) -> list[dict]:
             latest[r["drawing"]] = r["commit_sha"]
     for r in rows:
         r["is_current"] = (r["commit_sha"] == latest.get(r["drawing"]) and r["status"] != "deleted")
+        # PDF first (renders the drawing), DXF second (text source).
+        r["pdf_rel"] = f"pdf/{r['drawing']}.pdf"
+        r["pdf_github"] = f"{pdf_base}/{r['drawing']}.pdf"
         r["dxf_rel"] = f"drawings/{r['drawing']}.dxf"
-        r["dxf_github"] = f"{GITHUB_DRAWINGS_BASE}/{r['drawing']}.dxf"
+        r["dxf_github"] = f"{dxf_base}/{r['drawing']}.dxf"
         r.pop("rowid", None)
     projects = sorted({r["project"] for r in rows if r["project"]})
     materials = sorted({str(r["material"]) for r in rows if r["material"]})
@@ -51,6 +56,24 @@ def _rows(db: Path) -> list[dict]:
     texts = sorted({str(r["text_raw"]) for r in rows if r["text_raw"]})[:300]
     con.close()
     return rows, projects, materials, drawings, texts
+
+
+def _unindexed_pdfs(pdf_dir: Path, drawings_known: set[str]) -> list[dict]:
+    """PDFs (incl. PDF-only inputs with no DXF) that have no indexed elements."""
+    out = []
+    pdf_dir = Path(pdf_dir)
+    if not pdf_dir.exists():
+        return out
+    for pdf in sorted(pdf_dir.rglob("*.pdf")):
+        try:
+            did = pdf.relative_to(pdf_dir).with_suffix("").as_posix()
+        except ValueError:
+            continue
+        if did not in drawings_known:
+            out.append({"drawing": did,
+                        "project": did.split("/")[0] if "/" in did else "",
+                        "pdf_rel": f"pdf/{did}.pdf"})
+    return out
 
 
 def write_markdown(db: Path, out: Path) -> Path:
@@ -76,8 +99,12 @@ def write_markdown(db: Path, out: Path) -> Path:
     return out
 
 
-def write_html(db: Path, out: Path) -> Path:
-    rows, projects, materials, drawings, texts = _rows(db)
+def write_html(db: Path, out: Path, pdf_dir: Path = Path("pdf"),
+               drawings_dir: Path = Path("drawings"),
+               github_base: str | None = None) -> Path:
+    pdf_base = github_base or GITHUB_PDF_BASE
+    rows, projects, materials, drawings, texts = _rows(db, pdf_base=pdf_base)
+    unindexed = _unindexed_pdfs(Path(pdf_dir), {r["drawing"] for r in rows})
     payload = json.dumps(rows, ensure_ascii=False).replace("</", "<\\/")
 
     def opts(vals):
@@ -105,7 +132,7 @@ code{{background:#eee;padding:1px 4px;border-radius:4px}}
 a.dxf{{font-weight:600}}
 </style></head><body>
 <header><h2 style="margin:0">arcdiff — search element history</h2>
-<div style="opacity:.75;font-size:13px">Static report, no server. Type to get suggestions — e.g. material <code>c</code> → concrete. Click a drawing to open its DXF.</div></header>
+<div style="opacity:.75;font-size:13px">Static report, no server. Type to get suggestions — e.g. material <code>c</code> → concrete. Click a drawing to open its <b>PDF</b> (rendered view); <code>dxf</code> is the text source.</div></header>
 <main>
 <div class="filters">
 <select id="proj">{proj_opts}</select>
@@ -122,16 +149,16 @@ a.dxf{{font-weight:600}}
 <table><thead><tr>
 <th>project</th><th>drawing</th><th>element</th><th>material</th><th>value</th><th>text</th><th>status</th><th>commit</th><th>date</th>
 </tr></thead><tbody id="body"></tbody></table>
-
+UNINDEXED_SECTION
 <div class="card">
 <h3 style="margin-top:0">Add a drawing (where do I input?)</h3>
 <div class="hint">Static pages cannot save files — pick the project + file here, run the 3 commands it prints in <code>Gitails-DRAWINGS</code>.</div>
 <div class="filters">
 <select id="add-proj"><option value="">(no project — drawings/ root)</option>{''.join(f'<option>{p}</option>' for p in projects)}<option value="__new__">+ New project…</option></select>
 <input id="add-newproj" placeholder="new project name" style="display:none;min-width:160px">
-<input type="file" id="add-file" accept=".dxf">
+<input type="file" id="add-file" accept=".dxf,.dwg,.pdf">
 </div>
-<pre id="add-cmds" class="hint">Select a .dxf file above.</pre>
+<pre id="add-cmds" class="hint">Select a .dxf file above (.dwg works too — export to DXF first; .pdf alone is view-only).</pre>
 </div>
 
 <script>
@@ -155,8 +182,9 @@ function render(){{
   }}).slice(0,1000);
   count.textContent=out.length+' of '+ROWS.length+' rows (capped at 1000)';
   body.innerHTML=out.map(r=>'<tr><td>'+esc(r.project||'—')+'</td>'
-    +'<td><a class="dxf" href="'+esc(r.dxf_rel)+'">'+esc(r.drawing)+'</a> '
-    +'<a href="'+esc(r.dxf_github)+'" title="Open on GitHub">↗</a></td>'
+    +'<td><a class="dxf" href="'+esc(r.pdf_rel||('pdf/'+r.drawing+'.pdf'))+'">📄 '+esc(r.drawing)+'</a> '
+    +'<a href="'+esc(r.pdf_github||'')+'" title="Open PDF on GitHub">↗</a> '
+    +'<a href="'+esc(r.dxf_rel)+'" title="DXF text source" style="font-size:11px">dxf</a></td>'
     +'<td><code>'+esc(r.element_id)+'</code></td><td>'+esc(r.material||'')+'</td><td>'+esc(r.value??'')+'</td>'
     +'<td>'+esc(r.text_raw||'')+'</td><td>'+esc(r.status||'')+'</td>'
     +'<td><code>'+esc((r.commit_sha||'').slice(0,7))+'</code></td><td>'+esc(r.commit_date||'')+'</td></tr>').join('');
@@ -174,11 +202,23 @@ function hint(){{
   let p=addProj.value==='__new__'?addNew.value.trim():addProj.value;
   const dest=p?('drawings/'+p+'/'+f.name):('drawings/'+f.name);
   addCmds.textContent='1. copy file → '+dest+'\\n'
+    +'   (.dwg? export to ASCII DXF R2018+ first — DWG is never parsed. .pdf alone is view-only.)\\n'
     +'2. C:\\\\AI\\\\python.exe -m arcdiff.cli extract '+dest+' --state-dir state --config-dir ..\\\\Gitails-Tools\\\\config\\n'
-    +'3. git add '+dest+' state\\n   git commit -m "Add '+f.name+(p?(' to '+p):'')+'"';
+    +'3. C:\\\\AI\\\\python.exe -m arcdiff.cli render --drawings-dir drawings --pdf-dir pdf'
+    +'   (makes pdf/… .pdf so links open the drawing, not code)\\n'
+    +'4. git add '+dest+' state\\ pdf\\n   git commit -m "Add '+f.name+(p?(' to '+p):'')+'"';
 }}
 </script></main></body></html>
 """
+    unindexed_html = ""
+    if unindexed:
+        items = "\n".join(
+            f'<li><a class="dxf" href="pdf/{u["drawing"]}.pdf">📄 {u["drawing"]}</a> '
+            f'<span class="hint">(PDF only — no DXF state indexed; add a .dxf to make it searchable)</span></li>'
+            for u in unindexed)
+        unindexed_html = (f'<div class="card"><h3 style="margin-top:0">Drawings with PDF but no indexed elements ({len(unindexed)})</h3>'
+                          f'<ul>{items}</ul></div>')
+    page = page.replace("UNINDEXED_SECTION", unindexed_html)
     out = Path(out)
     out.write_text(page, encoding="utf-8", newline="\n")
     return out

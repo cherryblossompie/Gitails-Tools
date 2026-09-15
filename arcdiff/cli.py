@@ -60,6 +60,20 @@ def extract(dxf_path, state_dir, config_dir, drawings_dir, tolerance, check):
     state_jsonl = state_dir / (drawing + ".jsonl")
     state_idmap = state_dir / (drawing + ".idmap.json")
 
+    # DWG companion: never parsed (brief), but warn when it is newer than the
+    # DXF — the export step was likely forgotten. PDF companions are viewing
+    # artifacts and need no warning.
+    for dwg_suffix in (".dwg", ".DWG"):
+        sib = dxf_path.with_suffix(dwg_suffix)
+        if sib.exists():
+            try:
+                if sib.stat().st_mtime > dxf_path.stat().st_mtime:
+                    click.echo(f"WARNING: {sib.name} is newer than {dxf_path.name} — "
+                               f"re-export DWG->DXF (ASCII R2018+) before extract", err=True)
+            except OSError:
+                pass
+            break
+
     materials_cfg = load_materials(config_dir / "materials.yaml") if (config_dir / "materials.yaml").exists() else {}
     current_raw = extract_state(dxf_path, materials_cfg)
     prev = _load_jsonl(state_jsonl) if state_jsonl.exists() else []
@@ -205,14 +219,45 @@ def changed_cmd(from_sha, to_sha, as_json, db):
 @click.option("--db", default="index.sqlite")
 @click.option("--html", "html_out", default="report.html")
 @click.option("--markdown", "md_out", default=None)
-def report_cmd(db, html_out, md_out):
+@click.option("--pdf-dir", default="pdf", help="Committed PDF previews dir (for links + unindexed list)")
+@click.option("--drawings-dir", default="drawings", help="Drawings root (for unindexed list)")
+@click.option("--github-base", default=None, help="Override GitHub drawings base URL")
+def report_cmd(db, html_out, md_out, pdf_dir, drawings_dir, github_base):
     """Static search interface (HTML with client-side filters) + optional markdown."""
     from .report import write_html, write_markdown
-    h = write_html(Path(db), Path(html_out))
+    h = write_html(Path(db), Path(html_out), pdf_dir=Path(pdf_dir),
+                   drawings_dir=Path(drawings_dir), github_base=github_base)
     click.echo(f"wrote {h}")
     if md_out:
         m = write_markdown(Path(db), Path(md_out))
         click.echo(f"wrote {m}")
+
+
+@cli.command("render")
+@click.option("--drawings-dir", default="drawings", help="DXF inputs (recursive, incl. <project>/ subfolders)")
+@click.option("--pdf-dir", default="pdf", help="PDF previews output (mirrors drawings/, committed)")
+@click.option("--force", is_flag=True, help="Re-render even when PDF is newer than DXF")
+@click.option("--check", is_flag=True, help="CI mode: fail if any PDF missing/outdated (no writes)")
+def render_cmd(drawings_dir, pdf_dir, force, check):
+    """Render every DXF to a viewable PDF (viewing only — parsing stays DXF)."""
+    from .render import check_all, render_all
+    if check:
+        missing = check_all(Path(drawings_dir), Path(pdf_dir))
+        if missing:
+            click.echo(f"PDF previews missing/outdated for: {', '.join(missing)}", err=True)
+            click.echo("Run: arcdiff render --drawings-dir drawings --pdf-dir pdf", err=True)
+            raise SystemExit(1)
+        click.echo(f"pdf previews in sync")
+        return
+    results = render_all(Path(drawings_dir), Path(pdf_dir), force=force)
+    if not results:
+        click.echo("no DXF drawings found")
+        return
+    for r in results:
+        click.echo(f"{r['drawing']}: {r['action']}")
+    failed = [r for r in results if r["action"] == "FAILED"]
+    if failed:
+        raise SystemExit(1)
 
 
 def main():

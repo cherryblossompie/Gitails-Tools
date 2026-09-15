@@ -11,6 +11,7 @@ Brief: `../arcdiff-opencode-brief.md` (kept in parent `gitails/` folder).
 * `arcdiff/index.py` (Part 4) — git log of `state/*.jsonl` → `index.sqlite` (incremental)
 * `arcdiff/query.py` + CLI (Part 5) — `find` / `history` / `at` / `changed`
 * `arcdiff/report.py` — static HTML search page (no server) + markdown
+* `arcdiff/render.py` — DXF → PDF previews for viewing (never parsed)
 * Part 6 — `.github/workflows/ci.yml` here; PR review workflow lives in Gitails-DRAWINGS
 
 ## Drafter workflow (single command, runs locally)
@@ -37,6 +38,8 @@ arcdiff find --db index.sqlite --text TOUGHENED --json
 
 # static page — open in a browser, filter locally (material/value/text/drawing + ever):
 arcdiff report --db index.sqlite --html report.html
+# viewable PDFs — browsers show DXF as text, so render previews (viewing only):
+arcdiff render --drawings-dir <drawings-repo>/drawings --pdf-dir <drawings-repo>/pdf
 ```
 
 `index.sqlite` is derived, never committed. `report.html` is generated on demand
@@ -48,4 +51,11 @@ and in CI (PR artifact).
 C:\AI\python.exe -m pytest -q   # 16 tests (Parts 1-5)
 ```
 
-Python ≥3.11 (tested 3.12.7), ezdxf, click, pyyaml.
+Python ≥3.11 (tested 3.12.7), ezdxf, click, pyyaml, matplotlib (PDF previews).
+
+## Inputs: DXF / DWG / PDF
+
+Parsing always comes from ASCII DXF R2018+ (brief constraint — never DWG, never PDF content).
+`.dwg` may sit beside the `.dxf`; `extract` warns if the DWG is newer than the DXF
+(re-export first via ODA File Converter or AutoCAD). A lone `.pdf` with no `.dxf`
+is view-only: linked in the report, but not searchable (no element state).
