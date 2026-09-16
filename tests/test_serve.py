@@ -207,11 +207,88 @@ def test_serve_ingest_counts_deletions(tmp_path):
         srv.shutdown()
 
 
+def test_serve_pdf_text_indexed_when_no_dxf_twin(tmp_path):
+    import subprocess
+    from gitail.extract import extract_pdf_state
+    from gitail.semantics import load_materials
+    cfg = load_materials(Path(__file__).parent.parent / "config" / "materials.yaml")
+    pa, pb = tmp_path / "a.pdf", tmp_path / "b.pdf"
+    pa.write_bytes(_pdf_bytes("3mm GLASS", "TERR 1"))
+    pb.write_bytes(_pdf_bytes("3mm GLASS", "TERR 1"))
+    rows = extract_pdf_state(pa, cfg)
+    assert {r["text_raw"] for r in rows} >= {"3mm GLASS", "TERR 1"}
+    glass = next(r for r in rows if r["text_raw"] == "3mm GLASS")
+    assert glass["type"] == "PDFTEXT" and glass["parsed"]["material"] == "glass"
+    # deterministic re-extract
+    rows2 = extract_pdf_state(pb, cfg)
+    assert [(r["geom"], r["text_raw"]) for r in rows] == [(r["geom"], r["text_raw"]) for r in rows2]
+
+    repo = tmp_path / "repo"
+    (repo / "drawings").mkdir(parents=True)
+    for d in ("state", "pdf"):
+        (repo / d).mkdir()
+    subprocess.run(["git", "-C", str(repo), "init", "-b", "main"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "t@t.t"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "t"], check=True)
+    (repo / "x.txt").write_text("x")
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-m", "init"], check=True, capture_output=True)
+    ctx = {"repo": str(repo), "db": str(repo / "index.sqlite"),
+           "drawings_dir": str(repo / "drawings"), "state_dir": str(repo / "state"),
+           "pdf_dir": str(repo / "pdf"), "config_dir": str(Path(__file__).parent.parent / "config")}
+    srv = _start(ctx)
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+    try:
+        code, body = _post_multipart(base, "Fin", "A-206.pdf", _pdf_bytes("3mm GLASS", "TERR 1"))
+        assert code == 200, body[:300]
+        resp = json.loads(body)
+        assert resp["drawing"] == "Fin/A-206" and resp["revision"] == 1
+        assert resp["elements"] >= 2 and "PDF text layer" in " ".join(resp["warnings"])
+        assert (repo / "state" / "Fin" / "A-206.jsonl").exists()
+        with urllib.request.urlopen(base + "/api/search?" +
+                                    urllib.parse.urlencode([("chip", "material:glass")])) as r:
+            res = json.loads(r.read())
+        assert [d["drawing"] for d in res["drawings"]] == ["Fin/A-206"]
+        # blank PDF (no text layer) falls back to view-only, banner-safe shape
+        code, body = _post_multipart(base, "Fin", "scan.pdf", _blank_pdf_bytes())
+        assert code == 200, body[:300]
+        resp = json.loads(body)
+        assert "iteration_note" not in resp and "no text layer" in resp["note"]
+    finally:
+        srv.shutdown()
+
+
 def _png_bytes():
     # minimal valid 1x1 PNG (no imaging libs needed)
     import base64
     return base64.b64decode(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+
+
+def _pdf_bytes(*lines):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    fig = plt.figure(figsize=(8, 11))
+    for i, text in enumerate(lines):
+        fig.text(0.1, 0.9 - 0.05 * i, text)
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+        fig.savefig(f.name, format="pdf")
+        plt.close(fig)
+        return Path(f.name).read_bytes()
+
+
+def _blank_pdf_bytes():
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    fig = plt.figure()
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+        fig.savefig(f.name, format="pdf")
+        plt.close(fig)
+        return Path(f.name).read_bytes()
 
 
 def test_serve_images_view_only(tmp_path):

@@ -64,7 +64,10 @@ Python ≥3.11 (tested 3.12.7), ezdxf, click, pyyaml, matplotlib (PDF previews).
 
 Parsing always comes from ASCII DXF R2018+ (brief constraint — never DWG, never PDF content).
 `.dwg` may sit beside the `.dxf`; `extract` warns if the DWG is newer than the DXF
-(re-export first via ODA File Converter or AutoCAD). A lone `.pdf` with no `.dxf`
-is view-only: linked in the report, but not searchable (no element state).
+(re-export first via ODA File Converter or AutoCAD).
+`.pdf` with a same-stem `.dxf` twin is a view-only companion of that drawing.
+`.pdf` with **no** DXF twin is parsed for its **text layer** into searchable element
+state (`PDFTEXT` records, positions in sheet mm) — same materials config, same
+history/identity pipeline. Scanned-image PDFs have no text layer and stay view-only.
 `.png` / `.jpg` uploads land in `images/<project>/` as view-only references
 (site photos, scanned markups): thumbnailed on their drawing, never parsed.

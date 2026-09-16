@@ -206,8 +206,28 @@ class Handler(BaseHTTPRequestHandler):
             target_dir.mkdir(parents=True, exist_ok=True)
             target = target_dir / filename
             target.write_bytes(data)
-            resp = {"ok": True, "saved": str(target), "note": "PDF stored as view-only (no element state)."}
-            return self._json(resp)
+            # Searchable when no same-stem DXF exists: parse the text layer
+            # into element state under the same drawing id. A same-stem DXF
+            # always wins (it is the precise geometric source).
+            stem = Path(filename).stem
+            drawing = f"{project}/{stem}" if project else stem
+            twin = drawings_dir / (drawing + ".dxf")
+            if twin.exists():
+                committed = _git_commit(ctx, [str(target)],
+                                        f"Upload {drawing}.pdf companion via gitail serve")
+                resp = {"ok": True, "saved": str(target), "committed": committed,
+                        "note": f"PDF stored as view-only companion of {drawing} (DXF twin is the parsed source)."}
+                return self._json(resp)
+            try:
+                summary = _ingest_pdf(ctx, target, drawing)
+            except Exception as ex:
+                return self._text(500, f"pdf ingest failed: {ex}")
+            if summary is None:  # scanned image / no text layer: view-only
+                resp = {"ok": True, "saved": str(target),
+                        "note": "PDF has no text layer (scanned image?) — stored as view-only."}
+                return self._json(resp)
+            summary.update({"ok": True, "saved": str(target)})
+            return self._json(summary)
         if ext in IMAGE_EXTS:
             images_dir = _images_dir(ctx)
             target_dir = images_dir / project if project else images_dir
@@ -363,31 +383,11 @@ def _drawing_history(ctx, query) -> list:
         return []
 
 
-def _ingest_dxf(ctx, dxf: Path) -> dict:
-    """extract + render + auto-commit + reindex for one uploaded DXF."""
+def _resolve_store(ctx, drawing: str, raw: list) -> tuple:
+    """Identity-resolve raw records vs previous state, write jsonl+idmap."""
     import json as _json
-    from .extract import dxf_version, extract_state, version_supported
     from .identity import resolve
-    from .index import build_index
-    from .render import render_dxf_to_pdf
-    from .semantics import load_materials
-
-    drawings_dir = Path(ctx["drawings_dir"])
     state_dir = Path(ctx["state_dir"])
-    pdf_dir = Path(ctx["pdf_dir"])
-    try:
-        drawing = dxf.resolve().relative_to(drawings_dir.resolve()).with_suffix("").as_posix()
-    except ValueError:
-        drawing = dxf.stem
-    cfg_path = Path(ctx["config_dir"]) / "materials.yaml"
-    cfg = load_materials(cfg_path) if cfg_path.exists() else {}
-    warnings: list[str] = []
-    ver = dxf_version(dxf)
-    if ver and not version_supported(ver):
-        warnings.append(f"DXF {ver} < R2018 — re-export as ASCII R2018+ for reliable history")
-    raw = extract_state(dxf, cfg)
-    if not raw:
-        warnings.append("0 extractable entities — check the file has LINE/LWPOLYLINE/ARC/CIRCLE/HATCH/TEXT/MTEXT/DIMENSION/MULTILEADER in modelspace")
     sj, si = state_dir / (drawing + ".jsonl"), state_dir / (drawing + ".idmap.json")
     existed = sj.exists()  # same project+filename before? then this is iteration N+1
     prev = [_json.loads(l) for l in sj.read_text(encoding="utf-8").splitlines() if l.strip()] if sj.exists() else []
@@ -402,39 +402,40 @@ def _ingest_dxf(ctx, dxf: Path) -> dict:
                   encoding="utf-8", newline="\n")
     si.write_text(_json.dumps(new_idmap, sort_keys=True, indent=2, ensure_ascii=False) + "\n",
                   encoding="utf-8", newline="\n")
-    pdf_ok = render_dxf_to_pdf(dxf, pdf_dir / (drawing + ".pdf"))
-    committed: bool | str = False
+    return resolved, new_idmap, event, fuzzy, prev, existed
+
+
+def _git_commit(ctx, paths: list[str], message: str):
+    import subprocess
+    repo_p = Path(ctx["repo"])
+    if not (repo_p / ".git").exists():
+        return f"not a git repo ({repo_p}) — restart serve from the drawings repo root"
+    rel = []
+    for p in paths:
+        pp = Path(p)
+        if pp.exists():
+            try:
+                rel.append(pp.resolve().relative_to(repo_p.resolve()).as_posix())
+            except ValueError:
+                rel.append(p)
+    if not rel:
+        return "nothing to commit (unexpected)"
     try:
-        import subprocess
-        repo_p = Path(ctx["repo"])
-        if not (repo_p / ".git").exists():
-            committed = f"not a git repo ({repo_p}) — restart serve from the drawings repo root"
-        else:
-            paths = [str(Path(ctx["drawings_dir"]) / (drawing + ".dxf")),
-                     str(sj), str(si), str(pdf_dir / (drawing + ".pdf"))]
-            # git add only existing paths, relative to repo for safety
-            rel = []
-            for p in paths:
-                pp = Path(p)
-                if pp.exists():
-                    try:
-                        rel.append(pp.resolve().relative_to(repo_p.resolve()).as_posix())
-                    except ValueError:
-                        rel.append(p)
-            if not rel:
-                committed = "nothing to commit (unexpected)"
-            else:
-                subprocess.run(["git", "-C", str(repo_p), "add", "--", *rel],
-                               check=True, capture_output=True, text=True)
-                r = subprocess.run(["git", "-C", str(repo_p), "commit", "-m",
-                                    f"Upload {drawing} via gitail serve"],
-                                   capture_output=True, text=True)
-                committed = True if r.returncode == 0 else f"git commit failed: {(r.stderr or r.stdout).strip()[:200]}"
+        subprocess.run(["git", "-C", str(repo_p), "add", "--", *rel],
+                       check=True, capture_output=True, text=True)
+        r = subprocess.run(["git", "-C", str(repo_p), "commit", "-m", message],
+                           capture_output=True, text=True)
+        return True if r.returncode == 0 else f"git commit failed: {(r.stderr or r.stdout).strip()[:200]}"
     except Exception as ex:
-        committed = f"git error: {ex}"
-    idx = build_index(Path(ctx["repo"]), Path(ctx["db"]))
+        return f"git error: {ex}"
+
+
+def _summarize(ctx, drawing: str, resolved: list, prev: list, existed: bool,
+               event, fuzzy: list, pdf_ok: bool, committed, warnings: list) -> dict:
     from collections import Counter
+    from .index import build_index
     from .query import drawing_history
+    idx = build_index(Path(ctx["repo"]), Path(ctx["db"]))
     try:
         revs = drawing_history(Path(ctx["db"]), drawing)
     except Exception:
@@ -465,6 +466,59 @@ def _ingest_dxf(ctx, dxf: Path) -> dict:
             "fuzzy": [{"element_id": f["element_id"], "confidence": f["confidence"]} for f in fuzzy],
             "index": idx,
             "next": nxt}
+
+
+def _ingest_dxf(ctx, dxf: Path) -> dict:
+    """extract + render + auto-commit + reindex for one uploaded DXF."""
+    from .extract import dxf_version, extract_state, version_supported
+    from .render import render_dxf_to_pdf
+    from .semantics import load_materials
+
+    drawings_dir = Path(ctx["drawings_dir"])
+    pdf_dir = Path(ctx["pdf_dir"])
+    try:
+        drawing = dxf.resolve().relative_to(drawings_dir.resolve()).with_suffix("").as_posix()
+    except ValueError:
+        drawing = dxf.stem
+    cfg_path = Path(ctx["config_dir"]) / "materials.yaml"
+    cfg = load_materials(cfg_path) if cfg_path.exists() else {}
+    warnings: list[str] = []
+    ver = dxf_version(dxf)
+    if ver and not version_supported(ver):
+        warnings.append(f"DXF {ver} < R2018 \u2014 re-export as ASCII R2018+ for reliable history")
+    raw = extract_state(dxf, cfg)
+    if not raw:
+        warnings.append("0 extractable entities \u2014 check the file has LINE/LWPOLYLINE/ARC/CIRCLE/HATCH/TEXT/MTEXT/DIMENSION/MULTILEADER in modelspace")
+    resolved, _new_idmap, event, fuzzy, prev, existed = _resolve_store(ctx, drawing, raw)
+    pdf_ok = render_dxf_to_pdf(dxf, pdf_dir / (drawing + ".pdf"))
+    committed = _git_commit(ctx, [str(drawings_dir / (drawing + ".dxf")),
+                                  str(Path(ctx["state_dir"]) / (drawing + ".jsonl")),
+                                  str(Path(ctx["state_dir"]) / (drawing + ".idmap.json")),
+                                  str(pdf_dir / (drawing + ".pdf"))],
+                            f"Upload {drawing} via gitail serve")
+    return _summarize(ctx, drawing, resolved, prev, existed, event, fuzzy,
+                      pdf_ok, committed, warnings)
+
+
+def _ingest_pdf(ctx, pdf_path: Path, drawing: str) -> dict | None:
+    """PDF text layer + auto-commit + reindex. None => no text layer (view-only)."""
+    from .extract import extract_pdf_state
+    from .semantics import load_materials
+
+    cfg_path = Path(ctx["config_dir"]) / "materials.yaml"
+    cfg = load_materials(cfg_path) if cfg_path.exists() else {}
+    raw = extract_pdf_state(pdf_path, cfg)
+    if not raw:
+        return None
+    warnings = ["PDF text layer: positions are sheet coordinates (mm), not model space \u2014 DXF remains the precise source"]
+    resolved, _new_idmap, event, fuzzy, prev, existed = _resolve_store(ctx, drawing, raw)
+    committed = _git_commit(ctx, [str(pdf_path),
+                                  str(Path(ctx["state_dir"]) / (drawing + ".jsonl")),
+                                  str(Path(ctx["state_dir"]) / (drawing + ".idmap.json"))],
+                            f"Upload {drawing} (PDF text) via gitail serve")
+    return _summarize(ctx, drawing, resolved, prev, existed, event, fuzzy,
+                      True, committed, warnings)
+
 
 
 PAGE = """<!doctype html>
@@ -670,10 +724,14 @@ $('ubtn').addEventListener('click',async()=>{
   const t=await r.text();
   let summary=t;
   try{const j=JSON.parse(t);
-    summary=(r.ok?'OK — '+j.iteration_note+' | ':'FAILED ')
-      +j.elements+' element(s), pdf: '+(j.pdf?'yes':'FAILED')
-      +(j.committed===true?' — in search index':(' — NOT INDEXED: '+j.committed))
-      +((j.warnings||[]).length?' | ⚠️ '+j.warnings.join(' | '):'');
+    if(r.ok&&j.iteration_note!==undefined){
+      summary='OK — '+j.iteration_note+' | '+j.elements+' element(s), pdf: '+(j.pdf?'yes':'FAILED')
+        +(j.committed===true?' — in search index':(' — NOT INDEXED: '+j.committed))
+        +((j.warnings||[]).length?' | ⚠️ '+j.warnings.join(' | '):'');
+    }else if(r.ok){
+      summary='OK — '+(j.saved||'saved')+' | '+(j.note||'')
+        +(j.committed===true?' — committed':(j.committed?' — NOT COMMITTED: '+j.committed:''));
+    }else{summary='FAILED '+r.status+' '+t;}
   }catch(e){summary=(r.ok?'OK ':'FAILED '+r.status+' ')+t;}
   $('umsg').textContent=summary;
   await meta();renderChips();await search();

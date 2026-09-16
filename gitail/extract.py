@@ -374,3 +374,67 @@ def extract_state(dxf_path: str | Path, materials_cfg: dict) -> list[dict]:
 
     out.sort(key=lambda r: (r["layer"], r["type"], r["geom"]["x"], r["geom"]["y"], r.get("text_raw") or ""))
     return out
+
+
+PT_TO_MM = 25.4 / 72.0  # PDF points -> mm: keeps tolerances/rounding identical to DXF
+
+
+def extract_pdf_state(pdf_path: str | Path, materials_cfg: dict) -> list[dict]:
+    """PDF text layer -> canonical records (no element_id yet).
+
+    One record per non-empty text line: type PDFTEXT, layer PDF-P{page},
+    geometry in mm converted from PDF points. Parsed with the same
+    materials config, so `find --material` works across DXF and PDF sources.
+    Empty list <=> no text layer (e.g. scanned raster) — caller keeps the
+    PDF as view-only. Deterministic sort: page, then bottom-up y, x, text.
+    """
+    from pdfminer.high_level import extract_pages
+    from pdfminer.layout import LTContainer, LTTextLine
+
+    out: list[dict] = []
+    try:
+        pages = list(extract_pages(str(pdf_path)))
+    except Exception:
+        return []
+    for pno, page in enumerate(pages, 1):
+        lineno = 0
+
+        def walk(el):
+            nonlocal lineno
+            if isinstance(el, LTTextLine):
+                text = (el.get_text() or "").strip()
+                if not text:
+                    return
+                lineno += 1
+                x0, y0, x1, y1 = (r1(v * PT_TO_MM) for v in (el.x0, el.y0, el.x1, el.y1))
+                geom = {"x": r1((x0 + x1) / 2.0), "y": r1((y0 + y1) / 2.0),
+                        "bbox": [x0, y0, x1, y1]}
+                parsed = parse_annotation(text, None, materials_cfg)
+                fp = fingerprint_for("PDFTEXT", f"PDF-P{pno}", geom, text, None, None, None)
+                out.append({
+                    "dxf_handle": f"pdf:{pno:02d}-{lineno:04d}",
+                    "type": "PDFTEXT",
+                    "layer": f"PDF-P{pno}",
+                    "geom": geom,
+                    "text_raw": text,
+                    "parsed": parsed,
+                    "hatch_pattern": None,
+                    "dim_measurement": None,
+                    "dim_override": None,
+                    "fingerprint": fp,
+                    "height": None, "rotation": None, "vertices": None, "length": None,
+                    "linetype": None, "hatch_scale": None, "hatch_area": None,
+                    "dim_defpoints": None, "dim_style": None,
+                    "insert_x": None, "insert_y": None,
+                    "source": "pdf",
+                })
+            elif isinstance(el, LTContainer):
+                for child in el:
+                    walk(child)
+
+        try:
+            walk(page)
+        except Exception:
+            continue
+    out.sort(key=lambda r: (r["layer"], r["geom"]["y"], r["geom"]["x"], r.get("text_raw") or ""))
+    return out
