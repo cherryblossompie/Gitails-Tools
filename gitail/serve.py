@@ -571,7 +571,7 @@ async function search(){
       +`<td>${esc(r.text_raw||'')}</td><td>deleted</td>`
       +`<td><code>${esc((r.commit_sha||'').slice(0,7))}</code></td><td>${esc(r.commit_date||'')}</td></tr>`;});}
     if(open&&(d.images||[]).length){htm+=`<tr><td></td><td colspan="8" class="thumbs">🖼️ reference (view-only): `
-      +d.images.map(u=>`<a href="${esc(u)}"><img src="${esc(u)}" loading="lazy"></a>`).join('')+`</td></tr>`;}}
+      +d.images.map(u=>`<a href="${esc(u)}"><img src="${esc(u)}" loading="lazy"></a>`).join('')+`</td></tr>`;}
   });
   $('body').innerHTML=htm||'<tr><td colspan="9">No drawings contain all stacked filters.</td></tr>';
   const refs=res.ref_images||[];
