@@ -85,6 +85,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(_history(ctx, query))
         if path == "/api/drawing_history":
             return self._json(_drawing_history(ctx, query))
+        if path == "/api/blob":
+            return self._blob(ctx, query)
         if path.startswith("/pdf/"):
             return self._file(Path(ctx["pdf_dir"]), path[len("/pdf/"):], "application/pdf")
         if path.startswith("/drawings/"):
@@ -126,6 +128,50 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, ctype, target.read_bytes())
         except OSError:
             return self._text(500, "read error")
+
+    def _blob(self, ctx, query):
+        """Archived file at a revision: /api/blob?sha=<sha>&path=pdf/D-101.pdf.
+
+        Lets people open the old version of a drawing from the revisions list.
+        Only committed paths under pdf/, drawings/, state/, images/; sha must
+        be hex (prefix ok). Never touches the working tree.
+        """
+        import subprocess
+        sha = ((query.get("sha") or [""])[0] or "")
+        rel = urllib.parse.unquote((query.get("path") or [""])[0] or "")
+        if not re.fullmatch(r"[0-9a-fA-F]{4,40}", sha):
+            return self._text(400, "bad sha")
+        if not rel or rel.startswith("/") or ".." in Path(rel).parts:
+            return self._text(400, "bad path")
+        top = rel.split("/")[0]
+        if top not in ("pdf", "drawings", "state", "images"):
+            return self._text(403, "forbidden")
+        low = rel.lower()
+        if low.endswith(".pdf"):
+            ctype = "application/pdf"
+        elif low.endswith(".dxf"):
+            ctype = "image/vnd.dxf"
+        elif low.endswith((".png",)):
+            ctype = "image/png"
+        elif low.endswith((".jpg", ".jpeg")):
+            ctype = "image/jpeg"
+        elif low.endswith((".jsonl", ".json")):
+            ctype = "application/json"
+        else:
+            return self._text(403, "forbidden")
+        try:
+            full = subprocess.run(["git", "-C", str(ctx["repo"]), "rev-parse", "--verify",
+                                   f"{sha}^{{commit}}"], capture_output=True, text=True)
+            if full.returncode != 0:
+                return self._text(404, "unknown revision")
+            blob = subprocess.run(["git", "-C", str(ctx["repo"]), "show",
+                                   f"{full.stdout.strip()}:{rel}"],
+                                  capture_output=True)
+        except Exception as ex:
+            return self._text(500, f"git error: {ex}")
+        if blob.returncode != 0:
+            return self._text(404, "not in that revision (predates it, or never committed)")
+        return self._send(200, ctype, blob.stdout)
 
     def _upload(self):
         ctx = _ctx(self.server)
@@ -595,7 +641,10 @@ async function search(){
     row.firstElementChild.innerHTML='loading revisions…';
     const revs=await (await fetch('/api/drawing_history?drawing='+encodeURIComponent(d))).json();
     row.firstElementChild.innerHTML=revs.length
-      ?revs.map(r=>`<div>rev ${r.revision} <code>${esc((r.commit_sha||'').slice(0,7))}</code> ${esc((r.commit_date||'').slice(0,10))} — ${r.changed} changed ${esc(JSON.stringify(r.counts))} by ${esc(r.author||'')} — ${esc(r.commit_message||'')}</div>`).join('')
+      ?revs.map(r=>{const sh=(r.commit_sha||'').slice(0,12);
+        const pdf=`/api/blob?sha=${sh}&path=`+encodeURIComponent('pdf/'+d+'.pdf');
+        const dxf=`/api/blob?sha=${sh}&path=`+encodeURIComponent('drawings/'+d+'.dxf');
+        return `<div>rev ${r.revision} <code>${esc((r.commit_sha||'').slice(0,7))}</code> ${esc((r.commit_date||'').slice(0,10))} — ${r.changed} changed ${esc(JSON.stringify(r.counts))} by ${esc(r.author||'')} — ${esc(r.commit_message||'')} <a href="${pdf}">📄 old PDF</a> <a href="${dxf}" style="font-size:11px">dxf</a></div>`;}).join('')
       :'no revisions indexed';
   }});
 }

@@ -109,6 +109,20 @@ def test_serve_search_and_upload(tmp_path):
         assert all(x["matched"] for x in stacked["rows"])
         code, _ = _get(base, "/pdf/StageC/D-9.pdf")
         assert code == 200
+        # archived blobs: old PDF/DXF per revision, straight from git
+        rev1 = revs[0]["commit_sha"]
+        code, body = _get(base, "/api/blob?sha=" + rev1[:12] +
+                          "&path=" + urllib.parse.quote("pdf/StageC/D-9.pdf"))
+        assert code == 200 and body.startswith(b"%PDF")
+        code, body = _get(base, "/api/blob?sha=" + rev1[:12] +
+                          "&path=" + urllib.parse.quote("drawings/StageC/D-9.dxf"))
+        assert code == 200 and b"SECTION" in body
+        code, _ = _get(base, "/api/blob?sha=zzzz&path=" + urllib.parse.quote("pdf/StageC/D-9.pdf"))
+        assert code == 400
+        code, _ = _get(base, "/api/blob?sha=" + rev1[:12] + "&path=" + urllib.parse.quote("../x.txt"))
+        assert code in (400, 403)
+        code, _ = _get(base, "/api/blob?sha=" + rev1[:12] + "&path=" + urllib.parse.quote("pdf/StageC/nope.pdf"))
+        assert code == 404
     finally:
         srv.shutdown()
 
