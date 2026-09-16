@@ -191,3 +191,53 @@ def test_serve_ingest_counts_deletions(tmp_path):
         assert res["rows"] == [] and len(res["deleted"]) == 1
     finally:
         srv.shutdown()
+
+
+def _png_bytes():
+    # minimal valid 1x1 PNG (no imaging libs needed)
+    import base64
+    return base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+
+
+def test_serve_images_view_only(tmp_path):
+    import subprocess
+    repo = tmp_path / "repo"
+    (repo / "drawings").mkdir(parents=True)
+    for d in ("state", "pdf", "images"):
+        (repo / d).mkdir()
+    subprocess.run(["git", "-C", str(repo), "init", "-b", "main"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "t@t.t"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "t"], check=True)
+    (repo / "x.txt").write_text("x")
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-m", "init"], check=True, capture_output=True)
+    ctx = {"repo": str(repo), "db": str(repo / "index.sqlite"),
+           "drawings_dir": str(repo / "drawings"), "state_dir": str(repo / "state"),
+           "pdf_dir": str(repo / "pdf"), "images_dir": str(repo / "images"),
+           "config_dir": str(Path(__file__).parent.parent / "config")}
+    srv = _start(ctx)
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+    try:
+        # orphan image first: no drawing yet
+        code, body = _post_multipart(base, "StageC", "site.png", _png_bytes())
+        assert code == 200, body[:200]
+        resp = json.loads(body)
+        assert resp["committed"] is True and "view-only" in resp["note"]
+        assert (repo / "images" / "StageC" / "site.png").exists()
+        code, body = _get(base, "/images/StageC/site.png")
+        assert code == 200 and body == _png_bytes()
+        with urllib.request.urlopen(base + "/api/search") as r:
+            res = json.loads(r.read())
+        assert res["drawings"] == []  # images never parse into elements
+        assert [u["drawing"] for u in res["ref_images"]] == ["StageC/site"]
+        # now upload the matching DXF: image attaches to the drawing
+        code, body = _post_multipart(base, "StageC", "site.dxf", _dxf_bytes("3mm GLASS"))
+        assert code == 200, body[:200]
+        with urllib.request.urlopen(base + "/api/search") as r:
+            res = json.loads(r.read())
+        assert [d["drawing"] for d in res["drawings"]] == ["StageC/site"]
+        assert res["drawings"][0]["images"] == ["/images/StageC/site.png"]
+        assert res["ref_images"] == []
+    finally:
+        srv.shutdown()

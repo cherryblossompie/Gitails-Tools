@@ -20,11 +20,50 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 PROJECT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _-]{0,48}$")
-SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.\-]{0,120}\.(dxf|dwg|pdf)$", re.IGNORECASE)
+SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.\-]{0,120}\.(dxf|dwg|pdf|png|jpg|jpeg)$", re.IGNORECASE)
+# Raster images are view-only references (site photos, scanned markups):
+# stored and shown, never parsed — pixels are not CAD entities.
+IMAGE_EXTS = {"png", "jpg", "jpeg"}
+IMAGE_CTYPES = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg"}
+
+
+def image_urls(images_dir: Path, drawing: str) -> list[str]:
+    """View-only images sharing the drawing's path stem: images/<drawing>.png|jpg."""
+    out = []
+    base = Path(images_dir)
+    for ext in ("png", "jpg", "jpeg"):
+        if (base / (drawing + "." + ext)).is_file():
+            out.append(f"/images/{drawing}.{ext}")
+    return out
+
+
+def unindexed_images(images_dir: Path, drawings_known: set[str]) -> list[dict]:
+    """Images with no matching drawing id — listed separately, still viewable."""
+    out = []
+    base = Path(images_dir)
+    if not base.exists():
+        return out
+    for img in sorted(base.rglob("*")):
+        if img.is_file() and img.suffix.lower().lstrip(".") in IMAGE_EXTS:
+            try:
+                did = img.relative_to(base).with_suffix("").as_posix()
+            except ValueError:
+                continue
+            if did not in drawings_known:
+                out.append({"drawing": did,
+                            "project": did.split("/")[0] if "/" in did else "",
+                            "url": f"/images/{did}{img.suffix.lower()}"})
+    return out
 
 
 def _ctx(server) -> dict:
     return server.gitail_ctx
+
+
+def _images_dir(ctx) -> Path:
+    if ctx.get("images_dir"):
+        return Path(ctx["images_dir"])
+    return Path(ctx["drawings_dir"]).parent / "images"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -50,6 +89,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._file(Path(ctx["pdf_dir"]), path[len("/pdf/"):], "application/pdf")
         if path.startswith("/drawings/"):
             return self._file(Path(ctx["drawings_dir"]), path[len("/drawings/"):], "image/vnd.dxf")
+        if path.startswith("/images/"):
+            sub = urllib.parse.unquote(path[len("/images/"):])
+            ctype = IMAGE_CTYPES.get(sub.rsplit(".", 1)[-1].lower(), "application/octet-stream")
+            return self._file(Path(ctx["images_dir"]), path[len("/images/"):], ctype)
         return self._text(404, "not found")
 
     def do_POST(self):
@@ -103,7 +146,7 @@ class Handler(BaseHTTPRequestHandler):
         item = form["file"]
         filename = Path(getattr(item, "filename", "") or "").name
         if not SAFE_NAME_RE.match(filename):
-            return self._text(400, "only .dxf / .dwg / .pdf files")
+            return self._text(400, "only .dxf / .dwg / .pdf / .png / .jpg files")
         data = item.file.read() if item.file else b""
         if not data:
             return self._text(400, "empty file")
@@ -118,6 +161,31 @@ class Handler(BaseHTTPRequestHandler):
             target = target_dir / filename
             target.write_bytes(data)
             resp = {"ok": True, "saved": str(target), "note": "PDF stored as view-only (no element state)."}
+            return self._json(resp)
+        if ext in IMAGE_EXTS:
+            images_dir = _images_dir(ctx)
+            target_dir = images_dir / project if project else images_dir
+            target_dir.mkdir(parents=True, exist_ok=True)
+            target = target_dir / filename
+            target.write_bytes(data)
+            try:
+                import subprocess
+                repo_p = Path(ctx["repo"])
+                if (repo_p / ".git").exists():
+                    rel = target.resolve().relative_to(repo_p.resolve()).as_posix()
+                    subprocess.run(["git", "-C", str(repo_p), "add", "--", rel],
+                                   check=True, capture_output=True)
+                    subprocess.run(["git", "-C", str(repo_p), "commit", "-m",
+                                    f"Upload reference image {rel} (view-only)"],
+                                   check=True, capture_output=True)
+                    committed = True
+                else:
+                    committed = "not a git repo"
+            except Exception as ex:
+                committed = f"git error: {ex}"
+            resp = {"ok": True, "saved": str(target), "committed": committed,
+                    "images": [f"/images/{project + '/' if project else ''}{filename}"],
+                    "note": "Image stored as view-only reference (never parsed — pixels are not CAD entities)."}
             return self._json(resp)
         target = dest_dir / filename
         target.write_bytes(data)
@@ -166,8 +234,11 @@ def _meta(ctx) -> dict:
 def _search(ctx, query):
     from .query import find, parse_chip, search_stacked
     db = Path(ctx["db"])
+    imgdir = _images_dir(ctx)
     if not db.exists():
-        return {"drawings": [], "rows": []}
+        # no index yet — still surface view-only reference images
+        return {"drawings": [], "rows": [], "deleted": [],
+                "ref_images": unindexed_images(imgdir, set())}
     get = lambda k: (query.get(k) or [""])[0] or None
     ever = (get("ever") or "") in ("1", "true", "on")
     raw_chips = query.get("chip") or []
@@ -208,6 +279,16 @@ def _search(ctx, query):
         r["dxf_url"] = f"/drawings/{r['drawing']}.dxf"
     res["rows"] = res["rows"][:2000]
     res["deleted"] = res.get("deleted", [])[:500]
+    # view-only reference images (never parsed): per-drawing thumbs + orphans
+    try:
+        from .query import distinct as _distinct
+        known = set(_distinct(db, "drawing"))
+    except Exception:
+        known = {d["drawing"] for d in res.get("drawings", [])}
+    imgdir = _images_dir(ctx)
+    for d in res.get("drawings", []):
+        d["images"] = image_urls(imgdir, d["drawing"])
+    res["ref_images"] = unindexed_images(imgdir, known)
     return res
 
 
@@ -376,6 +457,7 @@ tr.del td{opacity:.6;text-decoration:line-through}
 .badge{font-size:11px;background:#ffd;border:1px solid #cc9;border-radius:4px;padding:1px 5px;margin-left:6px}
 .arrow{display:inline-block;width:1.2em}
 .linkbtn{background:none;border:none;color:#111;text-decoration:underline;cursor:pointer;font-size:13px;padding:8px 4px}
+.thumbs img{height:64px;border:1px solid #ccc;border-radius:4px;margin:2px;vertical-align:middle;background:#fff}
 </style></head><body>
 <header><h2 style="margin:0">gitail — live search + upload</h2>
 <div style="opacity:.75;font-size:13px">Reads <code>index.sqlite</code> directly. Uploads save into <code>drawings/&lt;project&gt;/</code>, then extract + render + reindex automatically.</div>
@@ -385,10 +467,10 @@ tr.del td{opacity:.6;text-decoration:line-through}
 <div class="filters">
 <select id="uproj"><option value="">(no project — drawings/ root)</option></select>
 <input id="unew" placeholder="or new project name" style="min-width:160px">
-<input type="file" id="ufile" accept=".dxf,.dwg,.pdf">
+<input type="file" id="ufile" accept=".dxf,.dwg,.pdf,.png,.jpg,.jpeg">
 <button id="ubtn">Upload</button>
 </div>
-<pre id="umsg" class="hint">Pick a .dxf and Upload — it lands in the repo + search index immediately.</pre>
+<pre id="umsg" class="hint">Pick a .dxf and Upload — it lands in the repo + search index immediately. (PNG/JPG are view-only references, never parsed.)</pre>
 </div>
 <div id="chips"></div>
 <div class="filters">
@@ -402,6 +484,7 @@ tr.del td{opacity:.6;text-decoration:line-through}
 <table><thead><tr>
 <th>project</th><th>drawing (PDF)</th><th>element</th><th>material</th><th>value</th><th>text</th><th>status</th><th>commit</th><th>date</th>
 </tr></thead><tbody id="body"></tbody></table>
+<div id="refsec"></div>
 </main>
 <script>
 const $=id=>document.getElementById(id);
@@ -476,7 +559,7 @@ async function search(){
     htm+=`<tr class="dhead" data-d="${esc(d.drawing)}"><td><span class="arrow">${open?'▼':'▶'}</span> ${esc(d.project||'—')}</td>`
       +`<td><a class="dxf" href="/pdf/${esc(d.drawing)}.pdf">📄 ${esc(d.drawing)}</a>${d.via_history?'<span class="badge">via history</span>':''}`
       +` <button class="linkbtn revbtn" data-d="${esc(d.drawing)}">revisions</button></td>`
-      +`<td colspan="7">${vis.length} of ${all.length} shown${(delByD[d.drawing]||[]).length?` (+${delByD[d.drawing].length} deleted)`:''}</td></tr>`;
+      +`<td colspan="7">${vis.length} of ${all.length} shown${(delByD[d.drawing]||[]).length?` (+${delByD[d.drawing].length} deleted)`:''}${(d.images||[]).length?` 🖼️${d.images.length}`:''}</td></tr>`;
     htm+=`<tr class="revrow" data-d="${esc(d.drawing)}" style="display:none"><td colspan="9"></td></tr>`;
     if(open){vis.forEach(r=>{htm+=`<tr class="hit"><td></td>`
       +`<td></td><td><code>${esc(r.element_id)}</code></td><td>${esc(r.material||'')}</td><td>${esc(r.value??'')}</td>`
@@ -486,8 +569,16 @@ async function search(){
       +`<td></td><td><code>${esc(r.element_id)}</code></td><td>${esc(r.material||'')}</td><td>${esc(r.value??'')}</td>`
       +`<td>${esc(r.text_raw||'')}</td><td>deleted</td>`
       +`<td><code>${esc((r.commit_sha||'').slice(0,7))}</code></td><td>${esc(r.commit_date||'')}</td></tr>`;});}
+    if(open&&(d.images||[]).length){htm+=`<tr><td></td><td colspan="8" class="thumbs">🖼️ reference (view-only): `
+      +d.images.map(u=>`<a href="${esc(u)}"><img src="${esc(u)}" loading="lazy"></a>`).join('')+`</td></tr>`;}}
   });
   $('body').innerHTML=htm||'<tr><td colspan="9">No drawings contain all stacked filters.</td></tr>';
+  const refs=res.ref_images||[];
+  $('refsec').innerHTML=refs.length
+    ?`<div class="card"><h3 style="margin-top:0">Reference images with no drawing (${refs.length})</h3>`
+     +`<div class="thumbs">`+refs.map(u=>`<a href="${esc(u.url)}" title="${esc(u.drawing)}"><img src="${esc(u.url)}" loading="lazy"></a>`).join('')+`</div>`
+     +`<div class="hint">View-only — upload the matching .dxf to make them searchable.</div></div>`
+    :'';
   $('body').querySelectorAll('tr.dhead').forEach(tr=>tr.onclick=e=>{
     if(e.target.tagName==='A'||e.target.closest('.revbtn'))return;
     const d=tr.dataset.d;
@@ -542,7 +633,7 @@ meta().then(search);
 
 
 def run(repo=".", db="index.sqlite", drawings_dir="drawings", state_dir="state",
-        pdf_dir="pdf", config_dir="config", port=8000):
+        pdf_dir="pdf", images_dir="images", config_dir="config", port=8000):
     # Absolute paths: the server must run from the drawings repo root, and the
     # printed repo line makes a wrong-folder start obvious immediately.
     repo_p = Path(repo).resolve()
@@ -552,7 +643,7 @@ def run(repo=".", db="index.sqlite", drawings_dir="drawings", state_dir="state",
         return str((repo_p / pp).resolve() if not pp.is_absolute() else pp)
     ctx = {"repo": str(repo_p), "db": _abs(db), "drawings_dir": _abs(drawings_dir),
            "state_dir": _abs(state_dir), "pdf_dir": _abs(pdf_dir),
-           "config_dir": str(config_dir)}
+           "images_dir": _abs(images_dir), "config_dir": str(config_dir)}
     print(f"gitail serve: http://localhost:{port}")
     print(f"  repo: {ctx['repo']}")
     if not (repo_p / ".git").exists():

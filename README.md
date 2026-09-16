@@ -60,9 +60,11 @@ C:\AI\python.exe -m pytest -q   # 19 tests
 
 Python ≥3.11 (tested 3.12.7), ezdxf, click, pyyaml, matplotlib (PDF previews).
 
-## Inputs: DXF / DWG / PDF
+## Inputs: DXF / DWG / PDF / PNG-JPG
 
 Parsing always comes from ASCII DXF R2018+ (brief constraint — never DWG, never PDF content).
 `.dwg` may sit beside the `.dxf`; `extract` warns if the DWG is newer than the DXF
 (re-export first via ODA File Converter or AutoCAD). A lone `.pdf` with no `.dxf`
 is view-only: linked in the report, but not searchable (no element state).
+`.png` / `.jpg` uploads land in `images/<project>/` as view-only references
+(site photos, scanned markups): thumbnailed on their drawing, never parsed.

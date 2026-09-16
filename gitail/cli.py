@@ -272,12 +272,14 @@ def changed_cmd(from_sha, to_sha, as_json, db):
 @click.option("--markdown", "md_out", default=None)
 @click.option("--pdf-dir", default="pdf", help="Committed PDF previews dir (for links + unindexed list)")
 @click.option("--drawings-dir", default="drawings", help="Drawings root (for unindexed list)")
+@click.option("--images-dir", default="images", help="View-only reference images (never parsed)")
 @click.option("--github-base", default=None, help="Override GitHub drawings base URL")
-def report_cmd(db, html_out, md_out, pdf_dir, drawings_dir, github_base):
+def report_cmd(db, html_out, md_out, pdf_dir, drawings_dir, images_dir, github_base):
     """Static search interface (HTML with client-side filters) + optional markdown."""
     from .report import write_html, write_markdown
     h = write_html(Path(db), Path(html_out), pdf_dir=Path(pdf_dir),
-                   drawings_dir=Path(drawings_dir), github_base=github_base)
+                   drawings_dir=Path(drawings_dir), images_dir=Path(images_dir),
+                   github_base=github_base)
     click.echo(f"wrote {h}")
     if md_out:
         m = write_markdown(Path(db), Path(md_out))
@@ -317,12 +319,13 @@ def render_cmd(drawings_dir, pdf_dir, force, check):
 @click.option("--drawings-dir", default="drawings")
 @click.option("--state-dir", default="state")
 @click.option("--pdf-dir", default="pdf")
+@click.option("--images-dir", default="images", help="View-only reference images (png/jpg, never parsed)")
 @click.option("--config-dir", default="config")
 @click.option("--port", default=8000, type=int)
-def serve_cmd(repo, db, drawings_dir, state_dir, pdf_dir, config_dir, port):
+def serve_cmd(repo, db, drawings_dir, state_dir, pdf_dir, images_dir, config_dir, port):
     """Live search + direct upload (reads index.sqlite, writes drawings/)."""
     from .serve import run
-    run(repo, db, drawings_dir, state_dir, pdf_dir, config_dir, port)
+    run(repo, db, drawings_dir, state_dir, pdf_dir, images_dir, config_dir, port)
 
 
 def main():

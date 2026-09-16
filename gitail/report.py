@@ -104,11 +104,28 @@ def write_markdown(db: Path, out: Path) -> Path:
 
 def write_html(db: Path, out: Path, pdf_dir: Path = Path("pdf"),
                drawings_dir: Path = Path("drawings"),
+               images_dir: Path = Path("images"),
                github_base: str | None = None) -> Path:
     pdf_base = github_base or GITHUB_PDF_BASE
     rows, projects, materials, drawings, texts, values = _rows(db, pdf_base=pdf_base)
     unindexed = _unindexed_pdfs(Path(pdf_dir), {r["drawing"] for r in rows})
+    imgdir = Path(images_dir)
+    by_drawing_imgs: dict[str, list[str]] = {}
+    if imgdir.exists():
+        for img in sorted(imgdir.rglob("*")):
+            if img.is_file() and img.suffix.lower().lstrip(".") in ("png", "jpg", "jpeg"):
+                try:
+                    did = img.relative_to(imgdir).with_suffix("").as_posix()
+                except ValueError:
+                    continue
+                by_drawing_imgs.setdefault(did, []).append(f"images/{did}{img.suffix.lower()}")
+    for r in rows:
+        r["images"] = by_drawing_imgs.get(r["drawing"], [])
+    known = {r["drawing"] for r in rows}
+    orphan_imgs = [{"drawing": did, "project": did.split("/")[0] if "/" in did else "", "url": u}
+                   for did, us in sorted(by_drawing_imgs.items()) if did not in known for u in us]
     payload = json.dumps(rows, ensure_ascii=False).replace("</", "<\\/")
+    orphanjs = json.dumps(orphan_imgs, ensure_ascii=False).replace("</", "<\\/")
     meta = {"materials": materials, "projects": projects, "drawings": drawings,
             "texts": texts, "values": [str(v) for v in values]}
     metajs = json.dumps(meta, ensure_ascii=False).replace("</", "<\\/")
@@ -142,6 +159,7 @@ a.dxf{{font-weight:600}}
 #sugg .o:hover{{background:#e8f0ff}}
 tr.hit td{{background:#fffbe8}}
 tr.del td{{opacity:.6;text-decoration:line-through}}
+.thumbs img{{height:64px;border:1px solid #ccc;border-radius:4px;margin:2px;vertical-align:middle;background:#fff}}
 .dhead td{{background:#eef;font-weight:600;cursor:pointer}}
 .dhead td:first-child{{white-space:nowrap}}
 .badge{{font-size:11px;background:#ffd;border:1px solid #cc9;border-radius:4px;padding:1px 5px;margin-left:6px}}
@@ -163,6 +181,7 @@ tr.del td{{opacity:.6;text-decoration:line-through}}
 <table><thead><tr>
 <th>project</th><th>drawing</th><th>element</th><th>material</th><th>value</th><th>text</th><th>status</th><th>commit</th><th>date</th>
 </tr></thead><tbody id="body"></tbody></table>
+<div id="orphsec"></div>
 UNINDEXED_SECTION
 <div class="card">
 <h3 style="margin-top:0">Add a drawing</h3>
@@ -177,6 +196,7 @@ UNINDEXED_SECTION
 
 <script>
 const ROWS = {payload};
+const ORPHAN_IMGS = {orphanjs};
 const META = {metajs};
 const $=id=>document.getElementById(id);
 let CHIPS=[];
@@ -270,11 +290,19 @@ function render(){{
         +`<td>${{esc(r.text_raw||'')}}</td><td>deleted</td>`
         +`<td><code>${{esc((r.commit_sha||'').slice(0,7))}}</code></td><td>${{esc(r.commit_date||'')}}</td></tr>`;
     }});
+    const imgs=open?((first.images||[])):[];
+    if(imgs.length){{htm+=`<tr><td></td><td colspan="8" class="thumbs">🖼️ reference (view-only): `
+      +imgs.map(u=>`<a href="${{esc(u)}}"><img src="${{esc(u)}}" loading="lazy"></a>`).join('')+`</td></tr>`;}}
   }});
+  let orph='';
+  if(ORPHAN_IMGS.length){{orph=`<div class="card"><h3 style="margin-top:0">Reference images with no drawing (${{ORPHAN_IMGS.length}})</h3>`
+    +`<div class="thumbs">`+ORPHAN_IMGS.map(u=>`<a href="${{esc(u.url)}}" title="${{esc(u.drawing)}}"><img src="${{esc(u.url)}}" loading="lazy"></a>`).join('')+`</div>`
+    +`<div class="hint">View-only — upload the matching .dxf to make them searchable.</div></div>`;}}
   $('count').textContent=qual.length+' drawing(s)'
     +(CHIPS.length?' — must contain ALL '+CHIPS.length+' filter(s). Click a drawing to expand matching rows.':' — click a drawing to expand')
     +(ndel?` (+${{ndel}} deleted)`:'');
   $('body').innerHTML=htm||'<tr><td colspan="9">No drawings contain all stacked filters.</td></tr>';
+  $('orphsec').innerHTML=orph;
   $('body').querySelectorAll('tr.dhead').forEach(tr=>tr.onclick=e=>{{
     if(e.target.tagName==='A')return;
     const d=tr.dataset.d;
