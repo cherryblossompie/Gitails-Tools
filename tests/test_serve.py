@@ -82,6 +82,7 @@ def test_serve_search_and_upload(tmp_path):
         resp = json.loads(body)
         assert resp["drawing"] == "StageC/D-9"
         assert resp["committed"] is True
+        assert resp["is_new_drawing"] is True and resp["revision"] == 1
         assert (repo / "drawings" / "StageC" / "D-9.dxf").exists()
         assert (repo / "state" / "StageC" / "D-9.jsonl").exists()
         assert (repo / "pdf" / "StageC" / "D-9.pdf").exists()
@@ -89,6 +90,17 @@ def test_serve_search_and_upload(tmp_path):
         with urllib.request.urlopen(base + "/api/search?material=glass&ever=1") as r:
             legacy = json.loads(r.read())
         assert any(x["drawing"] == "StageC/D-9" for x in legacy["rows"])
+        # re-upload = iteration 2 of the same drawing
+        code, body = _post_multipart(base, "StageC", "D-9.dxf", _dxf_bytes("12mm GLASS"))
+        assert code == 200, body[:300]
+        resp2 = json.loads(body)
+        assert resp2["is_new_drawing"] is False and resp2["revision"] == 2
+        assert "iteration 2" in resp2["iteration_note"]
+        with urllib.request.urlopen(base + "/api/drawing_history?drawing=" +
+                                    urllib.parse.quote("StageC/D-9")) as r:
+            revs = json.loads(r.read())
+        assert [x["revision"] for x in revs] == [1, 2]
+        assert revs[1]["changed"] >= 1
         # stacked chip mode: drawing must contain EACH chip
         chip_q = urllib.parse.urlencode([("chip", "material:glass"), ("ever", "1")])
         with urllib.request.urlopen(base + "/api/search?" + chip_q) as r:

@@ -218,6 +218,25 @@ def at_cmd(commit, drawing, as_json, db):
         _table(rows)
 
 
+@cli.command("revisions")
+@click.argument("drawing")
+@click.option("--json", "as_json", is_flag=True)
+@click.option("--db", default="index.sqlite")
+def revisions_cmd(drawing, as_json, db):
+    """Revision list for one drawing: is this upload iteration N, and what changed."""
+    from .query import drawing_history
+    revs = drawing_history(Path(db), drawing)
+    if as_json:
+        click.echo(json.dumps(revs, indent=2, ensure_ascii=False))
+    elif not revs:
+        click.echo("unknown drawing")
+    else:
+        for r in revs:
+            click.echo(f"rev {r['revision']} {(r['commit_sha'] or '')[:7]} "
+                       f"{(r['commit_date'] or '')[:10]} changed={r['changed']} "
+                       f"{r['counts']} by {r['author']} — {r['commit_message']}")
+
+
 @cli.command("changed")
 @click.option("--from", "from_sha", required=True)
 @click.option("--to", "to_sha", default="HEAD")

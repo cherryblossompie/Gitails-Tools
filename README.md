@@ -36,6 +36,8 @@ gitail find --db index.sqlite --material glass --value 3 --ever
 # stacked: repeat flags — only drawings containing EACH win (whole drawings shown):
 gitail find --db index.sqlite --material concrete --material steel
 gitail history e_9125db --db index.sqlite
+# drawing revisions — is this upload iteration N, and what changed each time:
+gitail revisions "StageC/D-102" --db index.sqlite
 gitail changed --from <shaA> --to <shaB> --db index.sqlite
 gitail find --db index.sqlite --text TOUGHENED --json
 

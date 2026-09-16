@@ -44,6 +44,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(_search(ctx, query))
         if path == "/api/history":
             return self._json(_history(ctx, query))
+        if path == "/api/drawing_history":
+            return self._json(_drawing_history(ctx, query))
         if path.startswith("/pdf/"):
             return self._file(Path(ctx["pdf_dir"]), path[len("/pdf/"):], "application/pdf")
         if path.startswith("/drawings/"):
@@ -214,6 +216,18 @@ def _history(ctx, query) -> list:
         return []
 
 
+def _drawing_history(ctx, query) -> list:
+    from .query import drawing_history
+    db = Path(ctx["db"])
+    drawing = ((query.get("drawing") or [""])[0])
+    if not drawing or not db.exists():
+        return []
+    try:
+        return drawing_history(db, drawing)
+    except Exception:
+        return []
+
+
 def _ingest_dxf(ctx, dxf: Path) -> dict:
     """extract + render + auto-commit + reindex for one uploaded DXF."""
     import json as _json
@@ -234,6 +248,7 @@ def _ingest_dxf(ctx, dxf: Path) -> dict:
     cfg = load_materials(cfg_path) if cfg_path.exists() else {}
     raw = extract_state(dxf, cfg)
     sj, si = state_dir / (drawing + ".jsonl"), state_dir / (drawing + ".idmap.json")
+    existed = sj.exists()  # same project+filename before? then this is iteration N+1
     prev = [_json.loads(l) for l in sj.read_text(encoding="utf-8").splitlines() if l.strip()] if sj.exists() else []
     idmap = _json.loads(si.read_text(encoding="utf-8")) if si.exists() else {"drawing": drawing, "elements": {}}
     resolved, new_idmap, event, fuzzy = resolve(raw, prev, idmap)
@@ -278,12 +293,26 @@ def _ingest_dxf(ctx, dxf: Path) -> dict:
         committed = f"git error: {ex}"
     idx = build_index(Path(ctx["repo"]), Path(ctx["db"]))
     from collections import Counter
+    from .query import drawing_history
+    try:
+        revs = drawing_history(Path(ctx["db"]), drawing)
+    except Exception:
+        revs = []
+    counts = Counter(r.get("status", "?") for r in resolved)
+    changed_now = sum(1 for r in resolved if r.get("status") not in ("unchanged", "new"))
+    nxt = ("git push to share" if committed is True
+           else f"NOT committed ({committed}); run: git add drawings state pdf && git commit")
     return {"drawing": drawing, "project": drawing.split("/")[0] if "/" in drawing else "",
-            "elements": len(resolved), "statuses": dict(Counter(r.get("status", "?") for r in resolved)),
+            "elements": len(resolved), "statuses": dict(counts),
+            "revision": len(revs), "is_new_drawing": not existed,
+            "iteration_note": (f"new drawing (revision 1)" if not existed
+                               else f"iteration {len(revs)} of existing drawing"
+                                    + (f" — {changed_now} changed element(s)" if changed_now
+                                       else " — no element changes vs previous")),
             "translation": event, "pdf": bool(pdf_ok), "committed": committed,
             "fuzzy": [{"element_id": f["element_id"], "confidence": f["confidence"]} for f in fuzzy],
             "index": idx,
-            "next": "review state/ + pdf/ diffs, then: git add drawings state pdf && git commit"}
+            "next": nxt}
 
 
 PAGE = """<!doctype html>
@@ -417,8 +446,10 @@ async function search(){
     const vis=all.filter(r=>r.matched);
     const open=EXPANDED.has(d.drawing);
     htm+=`<tr class="dhead" data-d="${esc(d.drawing)}"><td><span class="arrow">${open?'▼':'▶'}</span> ${esc(d.project||'—')}</td>`
-      +`<td><a class="dxf" href="/pdf/${esc(d.drawing)}.pdf">📄 ${esc(d.drawing)}</a>${d.via_history?'<span class="badge">via history</span>':''}</td>`
+      +`<td><a class="dxf" href="/pdf/${esc(d.drawing)}.pdf">📄 ${esc(d.drawing)}</a>${d.via_history?'<span class="badge">via history</span>':''}`
+      +` <button class="linkbtn revbtn" data-d="${esc(d.drawing)}">revisions</button></td>`
       +`<td colspan="7">${vis.length} of ${all.length} shown</td></tr>`;
+    htm+=`<tr class="revrow" data-d="${esc(d.drawing)}" style="display:none"><td colspan="9"></td></tr>`;
     if(open)vis.forEach(r=>{htm+=`<tr class="hit"><td></td>`
       +`<td></td><td><code>${esc(r.element_id)}</code></td><td>${esc(r.material||'')}</td><td>${esc(r.value??'')}</td>`
       +`<td>${esc(r.text_raw||'')}</td><td>${esc(r.status||'')}</td>`
@@ -426,11 +457,23 @@ async function search(){
   });
   $('body').innerHTML=htm||'<tr><td colspan="9">No drawings contain all stacked filters.</td></tr>';
   $('body').querySelectorAll('tr.dhead').forEach(tr=>tr.onclick=e=>{
-    if(e.target.tagName==='A')return;
+    if(e.target.tagName==='A'||e.target.closest('.revbtn'))return;
     const d=tr.dataset.d;
     EXPANDED.has(d)?EXPANDED.delete(d):EXPANDED.add(d);
     search();
   });
+  $('body').querySelectorAll('.revbtn').forEach(b=>{b.onclick=async e=>{
+    e.stopPropagation();
+    const d=b.dataset.d;
+    const row=$('body').querySelector(`tr.revrow[data-d="${CSS.escape(d)}"]`);
+    if(row.style.display!=='none'){row.style.display='none';return;}
+    row.style.display='';
+    row.firstElementChild.innerHTML='loading revisions…';
+    const revs=await (await fetch('/api/drawing_history?drawing='+encodeURIComponent(d))).json();
+    row.firstElementChild.innerHTML=revs.length
+      ?revs.map(r=>`<div>rev ${r.revision} <code>${esc((r.commit_sha||'').slice(0,7))}</code> ${esc((r.commit_date||'').slice(0,10))} — ${r.changed} changed ${esc(JSON.stringify(r.counts))} by ${esc(r.author||'')} — ${esc(r.commit_message||'')}</div>`).join('')
+      :'no revisions indexed';
+  }});
 }
 let EXPANDED=new Set();
 $('expall').onclick=async()=>{
@@ -453,8 +496,9 @@ $('ubtn').addEventListener('click',async()=>{
   const t=await r.text();
   let summary=t;
   try{const j=JSON.parse(t);
-    summary=(r.ok?'OK ':'FAILED ')+j.drawing+' — '+j.elements+' element(s), pdf: '+(j.pdf?'yes':'FAILED')
-      +(j.committed===true?' — saved to search index':(' — NOT INDEXED: '+j.committed));
+    summary=(r.ok?'OK — '+j.iteration_note+' | ':'FAILED ')
+      +j.elements+' element(s), pdf: '+(j.pdf?'yes':'FAILED')
+      +(j.committed===true?' — in search index':(' — NOT INDEXED: '+j.committed));
   }catch(e){summary=(r.ok?'OK ':'FAILED '+r.status+' ')+t;}
   $('umsg').textContent=summary;
   await meta();renderChips();await search();

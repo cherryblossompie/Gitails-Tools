@@ -284,3 +284,32 @@ def changed(db: Path, from_sha: str, to_sha: str) -> list[dict]:
                         "before": ra, "after": rb})
     con.close()
     return out
+
+
+def drawing_history(db: Path, drawing: str) -> list[dict]:
+    """Revision list for one drawing: one entry per commit snapshotting it,
+    oldest first, with per-status counts. Revision N = position in this list.
+    """
+    con = _con(db)
+    revs: dict[str, dict] = {}
+    order: list[str] = []
+    for r in con.execute(
+            "SELECT commit_sha, MIN(commit_date) AS d, MIN(author) AS a, MIN(commit_message) AS m,"
+            " status, COUNT(*) AS n FROM element_state WHERE drawing=? GROUP BY commit_sha, status"
+            " ORDER BY MIN(rowid)",
+            (drawing,)):
+        sha = r["commit_sha"]
+        if sha not in revs:
+            revs[sha] = {"commit_sha": sha, "commit_date": r["d"], "author": r["a"],
+                         "commit_message": r["m"], "counts": {}, "changed": 0}
+            order.append(sha)
+        revs[sha]["counts"][r["status"]] = r["n"]
+        if r["status"] != "unchanged":
+            revs[sha]["changed"] += r["n"]
+    con.close()
+    out = []
+    for i, sha in enumerate(order, 1):
+        e = revs[sha]
+        e["revision"] = i
+        out.append(e)
+    return out
