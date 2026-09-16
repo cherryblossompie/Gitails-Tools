@@ -32,8 +32,12 @@ def _start(ctx):
 
 
 def _get(base, path):
-    with urllib.request.urlopen(base + path) as r:
-        return r.status, r.read()
+    import urllib.error
+    try:
+        with urllib.request.urlopen(base + path) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as ex:
+        return ex.code, ex.read()
 
 
 def _post_multipart(base, project, filename, data):
