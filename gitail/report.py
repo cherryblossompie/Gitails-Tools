@@ -132,6 +132,7 @@ def write_html(db: Path, out: Path, pdf_dir: Path = Path("pdf"),
     page = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<base target="_blank">
 <title>gitail — element-state search</title>
 <style>
 body{{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:0;background:#fafafa;color:#222}}

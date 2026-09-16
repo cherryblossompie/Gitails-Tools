@@ -109,6 +109,7 @@ def _scripts_from(html):
 
 def test_serve_page_scripts_parse():
     from gitail.serve import PAGE
+    assert '<base target="_blank">' in PAGE  # links open a new tab, never navigate away
     scripts = _scripts_from(PAGE)
     assert scripts, "no inline script found"
     for i, s in enumerate(scripts):
@@ -131,6 +132,7 @@ def test_report_page_scripts_parse(tmp_path):
     con.close()
     (tmp_path / "pdf").mkdir()
     html = write_html(db, tmp_path / "r.html", pdf_dir=tmp_path / "pdf").read_text(encoding="utf-8")
+    assert '<base target="_blank">' in html
     scripts = _scripts_from(html)
     assert scripts, "no inline script found"
     for i, s in enumerate(scripts):

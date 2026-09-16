@@ -470,6 +470,7 @@ def _ingest_dxf(ctx, dxf: Path) -> dict:
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<base target="_blank">
 <title>gitail — live search + upload</title>
 <style>
 body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:0;background:#fafafa;color:#222}
