@@ -320,8 +320,11 @@ pre{white-space:pre-wrap}
 #sugg .o{padding:6px 8px;cursor:pointer;font-size:14px}
 #sugg .o.sel,#sugg .o:hover{background:#e8f0ff}
 tr.hit td{background:#fffbe8}
-.dhead td{background:#eef;font-weight:600}
+.dhead td{background:#eef;font-weight:600;cursor:pointer}
+.dhead td:first-child{white-space:nowrap}
 .badge{font-size:11px;background:#ffd;border:1px solid #cc9;border-radius:4px;padding:1px 5px;margin-left:6px}
+.arrow{display:inline-block;width:1.2em}
+.linkbtn{background:none;border:none;color:#111;text-decoration:underline;cursor:pointer;font-size:13px;padding:8px 4px}
 </style></head><body>
 <header><h2 style="margin:0">gitail — live search + upload</h2>
 <div style="opacity:.75;font-size:13px">Reads <code>index.sqlite</code> directly. Uploads save into <code>drawings/&lt;project&gt;/</code>, then extract + render + reindex automatically.</div>
@@ -341,6 +344,8 @@ tr.hit td{background:#fffbe8}
 <div id="pick"><input id="bar" placeholder="type to stack filters — e.g. concrete, steel, StageC… (Enter adds)" autocomplete="off"><div id="sugg"></div></div>
 <label style="align-self:center;font-size:13px"><input type="checkbox" id="ever"> ever (history counts)</label>
 <button id="clear" style="background:#fff;color:#111">Clear</button>
+<button id="expall" class="linkbtn" title="expand all drawings">Expand all</button>
+<button id="colall" class="linkbtn" title="collapse all drawings">Collapse all</button>
 </div>
 <div class="count" id="count"></div>
 <table><thead><tr>
@@ -404,23 +409,41 @@ async function search(){
   CHIPS.forEach(c=>p.append('chip',c.k+':'+c.v));
   const res=await (await fetch('/api/search?'+p)).json();
   const rows=res.rows||[],drws=res.drawings||[];
-  $('count').textContent=drws.length+' drawing(s), '+rows.length+' rows'
-    +(CHIPS.length?' — must contain ALL '+CHIPS.length+' filter(s)':'');
+  const shown=rows.filter(r=>r.matched).length;
+  $('count').textContent=drws.length+' drawing(s)'
+    +(CHIPS.length?`, ${shown} matching row(s) — must contain ALL ${CHIPS.length} filter(s)`:' — click a drawing to expand');
   const byD={};
   rows.forEach(r=>{(byD[r.drawing]=byD[r.drawing]||[]).push(r);});
   let htm='';
   drws.forEach(d=>{
-    const rs=byD[d.drawing]||[];
-    htm+=`<tr class="dhead"><td>${esc(d.project||'—')}</td>`
+    const all=(byD[d.drawing]||[]).slice().sort((a,b)=>String(a.element_id).localeCompare(String(b.element_id)));
+    const vis=all.filter(r=>r.matched);
+    const open=EXPANDED.has(d.drawing);
+    htm+=`<tr class="dhead" data-d="${esc(d.drawing)}"><td><span class="arrow">${open?'▼':'▶'}</span> ${esc(d.project||'—')}</td>`
       +`<td><a class="dxf" href="/pdf/${esc(d.drawing)}.pdf">📄 ${esc(d.drawing)}</a>${d.via_history?'<span class="badge">via history</span>':''}</td>`
-      +`<td colspan="7">${rs.length} element(s)</td></tr>`;
-    rs.forEach(r=>{htm+=`<tr${r.matched?' class="hit"':''}><td></td>`
+      +`<td colspan="7">${vis.length} of ${all.length} shown</td></tr>`;
+    if(open)vis.forEach(r=>{htm+=`<tr class="hit"><td></td>`
       +`<td></td><td><code>${esc(r.element_id)}</code></td><td>${esc(r.material||'')}</td><td>${esc(r.value??'')}</td>`
       +`<td>${esc(r.text_raw||'')}</td><td>${esc(r.status||'')}</td>`
       +`<td><code>${esc((r.commit_sha||'').slice(0,7))}</code></td><td>${esc(r.commit_date||'')}</td></tr>`;});
   });
   $('body').innerHTML=htm||'<tr><td colspan="9">No drawings contain all stacked filters.</td></tr>';
+  $('body').querySelectorAll('tr.dhead').forEach(tr=>tr.onclick=e=>{
+    if(e.target.tagName==='A')return;
+    const d=tr.dataset.d;
+    EXPANDED.has(d)?EXPANDED.delete(d):EXPANDED.add(d);
+    search();
+  });
 }
+let EXPANDED=new Set();
+$('expall').onclick=async()=>{
+  const p=new URLSearchParams({ever:$('ever').checked?'1':''});
+  CHIPS.forEach(c=>p.append('chip',c.k+':'+c.v));
+  const res=await (await fetch('/api/search?'+p)).json();
+  (res.drawings||[]).forEach(d=>EXPANDED.add(d.drawing));
+  search();
+};
+$('colall').onclick=()=>{EXPANDED.clear();search();};
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 $('ever').addEventListener('change',search);
 $('ubtn').addEventListener('click',async()=>{

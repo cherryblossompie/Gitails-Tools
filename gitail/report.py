@@ -139,8 +139,11 @@ a.dxf{{font-weight:600}}
 #sugg .o{{padding:6px 8px;cursor:pointer;font-size:14px}}
 #sugg .o:hover{{background:#e8f0ff}}
 tr.hit td{{background:#fffbe8}}
-.dhead td{{background:#eef;font-weight:600}}
+.dhead td{{background:#eef;font-weight:600;cursor:pointer}}
+.dhead td:first-child{{white-space:nowrap}}
 .badge{{font-size:11px;background:#ffd;border:1px solid #cc9;border-radius:4px;padding:1px 5px;margin-left:6px}}
+.arrow{{display:inline-block;width:1.2em}}
+.linkbtn{{background:none;border:none;text-decoration:underline;cursor:pointer;font-size:13px;padding:8px 4px}}
 </style></head><body>
 <header><h2 style="margin:0">gitail — search element history</h2>
 <div style="opacity:.75;font-size:13px">Static report, no server. One bar, stacked filters — type <code>concrete</code>, pick it, type <code>steel</code>, pick it: only drawings containing <b>both</b> remain. Click a drawing for its <b>PDF</b>.</div></header>
@@ -150,6 +153,8 @@ tr.hit td{{background:#fffbe8}}
 <div id="pick"><input id="bar" placeholder="type to stack filters — e.g. concrete, steel, StageC… (Enter adds)" autocomplete="off"><div id="sugg"></div></div>
 <label style="align-self:center;font-size:13px"><input type="checkbox" id="ever"> ever (history counts)</label>
 <button id="clear" style="background:#fff">Clear</button>
+<button id="expall" class="linkbtn">Expand all</button>
+<button id="colall" class="linkbtn">Collapse all</button>
 </div>
 <div class="count" id="count"></div>
 <table><thead><tr>
@@ -229,35 +234,46 @@ function render(){{
   const pool=ev?ROWS:ROWS.filter(r=>r.is_current);
   const byD={{}};
   pool.forEach(r=>{{(byD[r.drawing]=byD[r.drawing]||[]).push(r);}});
-  // qualifying drawings: every chip satisfied somewhere in the drawing
   const scope=ev?ROWS:ROWS.filter(r=>r.is_current);
   const scopeByD={{}};
   scope.forEach(r=>{{(scopeByD[r.drawing]=scopeByD[r.drawing]||[]).push(r);}});
   const qual=Object.keys(byD).filter(d=>CHIPS.every(c=>drawingHas(scopeByD[d]||[],c.k,c.v)));
   qual.sort();
-  let htm='',nrows=0;
+  let htm='',nshow=0;
   qual.forEach(d=>{{
-    const rs=(byD[d]||[]).slice().sort((a,b)=>String(a.element_id).localeCompare(String(b.element_id)));
-    const cur=rs.filter(r=>r.is_current);
-    const show=cur.length?cur:rs;
-    const first=show[0]||rs[0]||{{}};
-    const hist=ev&&CHIPS.length&&!show.some(r=>CHIPS.some(c=>matchRow(r,c.k,c.v)));
-    nrows+=show.length;
-    htm+=`<tr class="dhead"><td>${{esc(first.project||'—')}}</td>`
+    const all=(byD[d]||[]).slice().sort((a,b)=>String(a.element_id).localeCompare(String(b.element_id)));
+    const cur=all.filter(r=>r.is_current);
+    const vis=CHIPS.length?cur.filter(r=>CHIPS.some(c=>matchRow(r,c.k,c.v))):cur;
+    const open=EXPANDED.has(d);
+    const first=cur[0]||all[0]||{{}};
+    const hist=ev&&CHIPS.length&&!vis.length;
+    nshow+=open?vis.length:0;
+    htm+=`<tr class="dhead" data-d="${{esc(d)}}"><td><span class="arrow">${{open?'▼':'▶'}}</span> ${{esc(first.project||'—')}}</td>`
       +`<td><a class="dxf" href="${{esc(first.pdf_rel||('pdf/'+d+'.pdf'))}}">📄 ${{esc(d)}}</a>${{hist?'<span class="badge">via history</span>':''}}</td>`
-      +`<td colspan="7">${{show.length}} element(s)</td></tr>`;
-    show.forEach(r=>{{
-      const hit=CHIPS.length&&CHIPS.some(c=>matchRow(r,c.k,c.v));
-      htm+=`<tr${{hit?' class="hit"':''}}><td></td><td></td><td><code>${{esc(r.element_id)}}</code></td>`
+      +`<td colspan="7">${{vis.length}} of ${{all.length}} shown</td></tr>`;
+    if(open)vis.forEach(r=>{{
+      htm+=`<tr class="hit"><td></td><td></td><td><code>${{esc(r.element_id)}}</code></td>`
         +`<td>${{esc(r.material||'')}}</td><td>${{esc(r.value??'')}}</td>`
         +`<td>${{esc(r.text_raw||'')}}</td><td>${{esc(r.status||'')}}</td>`
         +`<td><code>${{esc((r.commit_sha||'').slice(0,7))}}</code></td><td>${{esc(r.commit_date||'')}}</td></tr>`;
     }});
   }});
-  $('count').textContent=qual.length+' drawing(s), '+nrows+' rows'
-    +(CHIPS.length?' — must contain ALL '+CHIPS.length+' filter(s)':'');
+  $('count').textContent=qual.length+' drawing(s)'
+    +(CHIPS.length?' — must contain ALL '+CHIPS.length+' filter(s). Click a drawing to expand matching rows.':' — click a drawing to expand');
   $('body').innerHTML=htm||'<tr><td colspan="9">No drawings contain all stacked filters.</td></tr>';
+  $('body').querySelectorAll('tr.dhead').forEach(tr=>tr.onclick=e=>{{
+    if(e.target.tagName==='A')return;
+    const d=tr.dataset.d;
+    EXPANDED.has(d)?EXPANDED.delete(d):EXPANDED.add(d);
+    render();
+  }});
 }}
+let EXPANDED=new Set();
+$('expall').onclick=()=>{{
+  document.querySelectorAll('#body tr.dhead').forEach(tr=>EXPANDED.add(tr.dataset.d));
+  render();
+}};
+$('colall').onclick=()=>{{EXPANDED.clear();render();}};
 function esc(s){{return String(s).replace(/[&<>"]/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}}[c]));}}
 $('ever').addEventListener('change',render);renderChips();render();
 // add-drawing helper
