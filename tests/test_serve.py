@@ -83,8 +83,14 @@ def test_serve_search_and_upload(tmp_path):
         assert (repo / "pdf" / "StageC" / "D-9.pdf").exists()
         # live DB search finds it immediately
         with urllib.request.urlopen(base + "/api/search?material=glass&ever=1") as r:
-            rows = json.loads(r.read())
-        assert any(x["drawing"] == "StageC/D-9" for x in rows)
+            legacy = json.loads(r.read())
+        assert any(x["drawing"] == "StageC/D-9" for x in legacy["rows"])
+        # stacked chip mode: drawing must contain EACH chip
+        chip_q = urllib.parse.urlencode([("chip", "material:glass"), ("ever", "1")])
+        with urllib.request.urlopen(base + "/api/search?" + chip_q) as r:
+            stacked = json.loads(r.read())
+        assert [d["drawing"] for d in stacked["drawings"]] == ["StageC/D-9"]
+        assert all(x["matched"] for x in stacked["rows"])
         code, _ = _get(base, "/pdf/StageC/D-9.pdf")
         assert code == 200
     finally:

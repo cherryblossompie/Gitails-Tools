@@ -150,38 +150,59 @@ def _meta(ctx) -> dict:
     db = Path(ctx["db"])
     meta = {"repo": str(Path(ctx["repo"]).resolve()),
             "git": bool((Path(ctx["repo"]) / ".git").exists()),
-            "projects": [], "materials": [], "drawings": [], "texts": []}
+            "projects": [], "materials": [], "drawings": [], "texts": [], "values": []}
     if not db.exists():
         return meta
     try:
         meta.update({"projects": distinct(db, "project"),
                      "materials": distinct(db, "material"),
                      "drawings": distinct(db, "drawing"),
-                     "texts": distinct(db, "text_raw")})
+                     "texts": distinct(db, "text_raw"),
+                     "values": distinct(db, "value")})
     except Exception:
         pass
     return meta
 
 
-def _search(ctx, query) -> list:
-    from .query import find
+def _search(ctx, query):
+    from .query import find, parse_chip, search_stacked
     db = Path(ctx["db"])
     if not db.exists():
-        return []
+        return {"drawings": [], "rows": []}
     get = lambda k: (query.get(k) or [""])[0] or None
-    val = get("value")
-    try:
-        rows = find(db, material=get("material"),
-                    value=float(val) if val not in (None, "") else None,
-                    text=get("text"), drawing=get("drawing"),
-                    project=get("project"),
-                    ever=(get("ever") or "") in ("1", "true", "on"))
-    except Exception:
-        rows = []
-    for r in rows:
+    ever = (get("ever") or "") in ("1", "true", "on")
+    raw_chips = query.get("chip") or []
+    if raw_chips:  # stacked single-bar mode
+        try:
+            chips = [parse_chip(c) for c in raw_chips if c.strip()]
+        except ValueError:
+            return {"drawings": [], "rows": [], "error": "bad chip"}
+        try:
+            res = search_stacked(db, chips, ever=ever)
+        except Exception:
+            return {"drawings": [], "rows": []}
+    else:  # legacy single-filter mode
+        val = get("value")
+        try:
+            rows = find(db, material=get("material"),
+                        value=float(val) if val not in (None, "") else None,
+                        text=get("text"), drawing=get("drawing"),
+                        project=get("project"), ever=ever)
+        except Exception:
+            rows = []
+        for r in rows:
+            r["matched"] = True
+        by_d = {}
+        for r in rows:
+            by_d.setdefault(r["drawing"], []).append(r)
+        res = {"drawings": [{"drawing": d, "project": v[0].get("project", ""),
+                             "elements": len(v), "via_history": False}
+                            for d, v in sorted(by_d.items())], "rows": rows}
+    for r in res["rows"]:
         r["pdf_url"] = f"/pdf/{r['drawing']}.pdf"
         r["dxf_url"] = f"/drawings/{r['drawing']}.dxf"
-    return rows[:1000]
+    res["rows"] = res["rows"][:2000]
+    return res
 
 
 def _history(ctx, query) -> list:
@@ -288,6 +309,19 @@ code{background:#eee;padding:1px 4px;border-radius:4px}
 .hint{font-size:13px;color:#555}
 a.dxf{font-weight:600}
 pre{white-space:pre-wrap}
+#chips{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.chip{background:#111;color:#fff;border-radius:20px;padding:4px 6px 4px 12px;font-size:13px;display:flex;gap:6px;align-items:center}
+.chip button{background:#444;color:#fff;border:none;border-radius:50%;width:20px;height:20px;cursor:pointer;padding:0;line-height:1}
+.chip .k{opacity:.65}
+#pick{position:relative;flex:1;min-width:220px}
+#bar{width:100%;box-sizing:border-box}
+#sugg{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #ccc;border-radius:6px;max-height:260px;overflow:auto;display:none;z-index:10;box-shadow:0 4px 12px rgba(0,0,0,.15)}
+#sugg .g{background:#f0f0f0;font-size:11px;text-transform:uppercase;padding:4px 8px;color:#666;position:sticky;top:0}
+#sugg .o{padding:6px 8px;cursor:pointer;font-size:14px}
+#sugg .o.sel,#sugg .o:hover{background:#e8f0ff}
+tr.hit td{background:#fffbe8}
+.dhead td{background:#eef;font-weight:600}
+.badge{font-size:11px;background:#ffd;border:1px solid #cc9;border-radius:4px;padding:1px 5px;margin-left:6px}
 </style></head><body>
 <header><h2 style="margin:0">gitail — live search + upload</h2>
 <div style="opacity:.75;font-size:13px">Reads <code>index.sqlite</code> directly. Uploads save into <code>drawings/&lt;project&gt;/</code>, then extract + render + reindex automatically.</div>
@@ -302,15 +336,12 @@ pre{white-space:pre-wrap}
 </div>
 <pre id="umsg" class="hint">Pick a .dxf and Upload — it lands in the repo + search index immediately.</pre>
 </div>
+<div id="chips"></div>
 <div class="filters">
-<select id="proj"><option value="">All projects</option></select>
-<input id="mat" list="dl-mat" placeholder="material (e.g. concrete)" style="flex:1;min-width:140px">
-<input id="val" placeholder="value (e.g. 3)" style="width:110px">
-<input id="q" list="dl-text" placeholder="text (e.g. TOUGHENED)" style="flex:2;min-width:180px">
-<input id="drw" list="dl-drw" placeholder="drawing (e.g. D-101)" style="flex:1;min-width:140px">
-<label style="align-self:center;font-size:13px"><input type="checkbox" id="ever"> ever</label>
+<div id="pick"><input id="bar" placeholder="type to stack filters — e.g. concrete, steel, StageC… (Enter adds)" autocomplete="off"><div id="sugg"></div></div>
+<label style="align-self:center;font-size:13px"><input type="checkbox" id="ever"> ever (history counts)</label>
+<button id="clear" style="background:#fff;color:#111">Clear</button>
 </div>
-<datalist id="dl-mat"></datalist><datalist id="dl-drw"></datalist><datalist id="dl-text"></datalist>
 <div class="count" id="count"></div>
 <table><thead><tr>
 <th>project</th><th>drawing (PDF)</th><th>element</th><th>material</th><th>value</th><th>text</th><th>status</th><th>commit</th><th>date</th>
@@ -318,27 +349,79 @@ pre{white-space:pre-wrap}
 </main>
 <script>
 const $=id=>document.getElementById(id);
+let META={materials:[],projects:[],drawings:[],texts:[],values:[]},CHIPS=[];
 async function meta(){
   const m=await (await fetch('/api/meta')).json();
-  const fill=(id,vals)=>{$(id).innerHTML=vals.map(v=>`<option value="${esc(v)}"></option>`).join('');};
-  fill('dl-mat',m.materials||[]);fill('dl-drw',m.drawings||[]);fill('dl-text',(m.texts||[]).slice(0,300));
-  $('proj').innerHTML='<option value="">All projects</option>'+(m.projects||[]).map(p=>`<option>${esc(p)}</option>`).join('');
+  META={materials:m.materials||[],projects:m.projects||[],drawings:m.drawings||[],texts:(m.texts||[]).slice(0,300),values:(m.values||[]).map(String)};
   $('uproj').innerHTML='<option value="">(no project — drawings/ root)</option>'+(m.projects||[]).map(p=>`<option>${esc(p)}</option>`).join('');
   $('repo').textContent='repo: '+(m.repo||'?')+(m.git?'':'  ⚠️ NOT A GIT REPO — restart serve from the drawings repo root');
 }
+function options(){
+  const o=[];
+  META.materials.forEach(v=>o.push({k:'material',v}));
+  META.projects.forEach(v=>o.push({k:'project',v}));
+  META.drawings.forEach(v=>o.push({k:'drawing',v}));
+  (META.values||[]).forEach(v=>o.push({k:'value',v}));
+  META.texts.forEach(v=>o.push({k:'text',v}));
+  return o;
+}
+function renderChips(){
+  $('chips').innerHTML=CHIPS.map((c,i)=>`<span class="chip"><span class="k">${esc(c.k)}</span>${esc(c.v)}<button data-i="${i}" title="remove">×</button></span>`).join('')
+    +(CHIPS.length?'':'<span class="hint">No filters — showing everything. Type below; each pick stacks (drawings must contain ALL).</span>');
+  $('chips').querySelectorAll('button').forEach(b=>b.onclick=()=>{CHIPS.splice(+b.dataset.i,1);renderChips();search();});
+}
+function suggest(){
+  const t=$('bar').value.toLowerCase().trim(),box=$('sugg');
+  if(!t){box.style.display='none';return;}
+  const hits=options().filter(o=>(o.k+':'+o.v).toLowerCase().includes(t)
+    && !CHIPS.some(c=>c.k===o.k&&c.v===o.v)).slice(0,60);
+  if(!hits.length){box.style.display='none';return;}
+  let g='';
+  box.innerHTML=hits.map((o,i)=>{
+    const h=o.k!==g?`<div class="g">${esc(o.k)}</div>`:'';
+    g=o.k;
+    return h+`<div class="o" data-i="${i}">${esc(o.k)}:<b>${esc(o.v)}</b></div>`;
+  }).join('');
+  box.style.display='block';
+  box.querySelectorAll('.o').forEach(el=>el.onclick=()=>{
+    const o=hits[+el.dataset.i];
+    CHIPS.push(o);$('bar').value='';box.style.display='none';renderChips();search();
+  });
+}
+$('bar').addEventListener('input',suggest);
+$('bar').addEventListener('keydown',e=>{
+  if(e.key==='Enter'){
+    const first=$('sugg').querySelector('.o');
+    if(first){first.click();}
+    else if($('bar').value.trim()){CHIPS.push({k:'text',v:$('bar').value.trim()});$('bar').value='';renderChips();search();}
+  }
+  if(e.key==='Escape'){$('sugg').style.display='none';}
+});
+document.addEventListener('click',e=>{if(!$('pick').contains(e.target))$('sugg').style.display='none';});
+$('clear').onclick=()=>{CHIPS=[];renderChips();search();};
 async function search(){
-  const p=new URLSearchParams({project:$('proj').value,material:$('mat').value,value:$('val').value,
-    text:$('q').value,drawing:$('drw').value,ever:$('ever').checked?'1':''});
-  const rows=await (await fetch('/api/search?'+p)).json();
-  $('count').textContent=rows.length+' rows';
-  $('body').innerHTML=rows.map(r=>`<tr><td>${esc(r.project||'—')}</td>`
-    +`<td><a class="dxf" href="${esc(r.pdf_url)}">📄 ${esc(r.drawing)}</a> <a href="${esc(r.dxf_url)}" style="font-size:11px">dxf</a></td>`
-    +`<td><code>${esc(r.element_id)}</code></td><td>${esc(r.material||'')}</td><td>${esc(r.value??'')}</td>`
-    +`<td>${esc(r.text_raw||'')}</td><td>${esc(r.status||'')}</td>`
-    +`<td><code>${esc((r.commit_sha||'').slice(0,7))}</code></td><td>${esc(r.commit_date||'')}</td></tr>`).join('');
+  const p=new URLSearchParams({ever:$('ever').checked?'1':''});
+  CHIPS.forEach(c=>p.append('chip',c.k+':'+c.v));
+  const res=await (await fetch('/api/search?'+p)).json();
+  const rows=res.rows||[],drws=res.drawings||[];
+  $('count').textContent=drws.length+' drawing(s), '+rows.length+' rows'
+    +(CHIPS.length?' — must contain ALL '+CHIPS.length+' filter(s)':'');
+  const byD={};
+  rows.forEach(r=>{(byD[r.drawing]=byD[r.drawing]||[]).push(r);});
+  let htm='';
+  drws.forEach(d=>{
+    const rs=byD[d.drawing]||[];
+    htm+=`<tr class="dhead"><td>${esc(d.project||'—')}</td>`
+      +`<td><a class="dxf" href="/pdf/${esc(d.drawing)}.pdf">📄 ${esc(d.drawing)}</a>${d.via_history?'<span class="badge">via history</span>':''}</td>`
+      +`<td colspan="7">${rs.length} element(s)</td></tr>`;
+    rs.forEach(r=>{htm+=`<tr${r.matched?' class="hit"':''}><td></td>`
+      +`<td></td><td><code>${esc(r.element_id)}</code></td><td>${esc(r.material||'')}</td><td>${esc(r.value??'')}</td>`
+      +`<td>${esc(r.text_raw||'')}</td><td>${esc(r.status||'')}</td>`
+      +`<td><code>${esc((r.commit_sha||'').slice(0,7))}</code></td><td>${esc(r.commit_date||'')}</td></tr>`;});
+  });
+  $('body').innerHTML=htm||'<tr><td colspan="9">No drawings contain all stacked filters.</td></tr>';
 }
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
-['proj','mat','val','q','drw'].forEach(id=>$(id).addEventListener('input',search));
 $('ever').addEventListener('change',search);
 $('ubtn').addEventListener('click',async()=>{
   const f=$('ufile').files[0];if(!f){$('umsg').textContent='Pick a file first.';return;}
@@ -354,7 +437,7 @@ $('ubtn').addEventListener('click',async()=>{
       +(j.committed===true?' — saved to search index':(' — NOT INDEXED: '+j.committed));
   }catch(e){summary=(r.ok?'OK ':'FAILED '+r.status+' ')+t;}
   $('umsg').textContent=summary;
-  await meta();await search();
+  await meta();renderChips();await search();
 });
 meta().then(search);
 </script></body></html>

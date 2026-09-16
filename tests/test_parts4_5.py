@@ -9,7 +9,7 @@ from gitail.cli import cli
 from gitail.extract import extract_state
 from gitail.identity import resolve
 from gitail.index import build_index
-from gitail.query import at, changed, find, history
+from gitail.query import at, changed, find, history, search_stacked
 from gitail.report import write_html, write_markdown
 from gitail.semantics import load_materials
 from click.testing import CliRunner
@@ -111,6 +111,49 @@ def test_index_incremental_and_query(tmp_path):
     md = write_markdown(db, tmp_path / "r.md")
     assert html.exists() and md.exists()
     assert "3mm" in html.read_text(encoding="utf-8") or "glass" in html.read_text(encoding="utf-8")
+
+
+def test_current_snapshot_never_duplicates(tmp_path):
+    """Commit 2 touches only drawing B; drawing A rows must still appear once."""
+    repo = make_repo(tmp_path)
+    write_dxf(repo / "drawings" / "A.dxf", "3mm GLASS")
+    extract_to_repo(repo / "drawings" / "A.dxf", repo)
+    git(repo, "add", ".")
+    git(repo, "commit", "-m", "A only")
+    write_dxf(repo / "drawings" / "B.dxf", "12 THK PLYWOOD")
+    extract_to_repo(repo / "drawings" / "B.dxf", repo)
+    git(repo, "add", ".")
+    git(repo, "commit", "-m", "add B, A untouched")
+    db = tmp_path / "index.sqlite"
+    build_index(repo, db)
+    cur = find(db, ever=False)
+    assert sorted((r["drawing"], r["element_id"]) for r in cur) == sorted(set(
+        (r["drawing"], r["element_id"]) for r in cur))
+    assert sum(1 for r in cur if r["drawing"] == "A") == 2  # 1 MTEXT + 1 LINE
+    stacked = search_stacked(db, [("material", "glass")])
+    assert [d["drawing"] for d in stacked["drawings"]] == ["A"]
+    assert sum(1 for r in stacked["rows"] if r["drawing"] == "A") == 2
+
+
+def test_stacked_and_across_chips(tmp_path):
+    repo = make_repo(tmp_path)
+    doc = ezdxf.new("R2018")
+    msp = doc.modelspace()
+    msp.add_mtext("3mm GLASS", dxfattribs={"layer": "A"}).dxf.insert = (0, 0)
+    msp.add_mtext("12 THK PLYWOOD", dxfattribs={"layer": "A"}).dxf.insert = (0, 10)
+    doc.saveas(str(repo / "drawings" / "MIX.dxf"))
+    extract_to_repo(repo / "drawings" / "MIX.dxf", repo)
+    write_dxf(repo / "drawings" / "PLAIN.dxf", "3mm GLASS")
+    extract_to_repo(repo / "drawings" / "PLAIN.dxf", repo)
+    git(repo, "add", ".")
+    git(repo, "commit", "-m", "mix + plain")
+    db = tmp_path / "index.sqlite"
+    build_index(repo, db)
+    res = search_stacked(db, [("material", "glass"), ("material", "plywood")])
+    assert [d["drawing"] for d in res["drawings"]] == ["MIX"]  # PLAIN lacks plywood
+    assert {r["element_id"] for r in res["rows"]} == \
+        {r["element_id"] for r in find(db, drawing="MIX", ever=False)}
+    assert any(r["matched"] for r in res["rows"])
 
 
 def test_cli_extract_check(tmp_path):

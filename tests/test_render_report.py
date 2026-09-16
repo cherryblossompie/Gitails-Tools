@@ -49,4 +49,5 @@ def test_report_links_pdf(tmp_path):
     html = write_html(db, tmp_path / "r.html", pdf_dir=tmp_path / "pdf")
     text = html.read_text(encoding="utf-8")
     assert "pdf/StageC/D-1.pdf" in text  # PDF-first link, not bare DXF
-    assert 'list="dl-mat"' in text and "concrete" in text  # autocomplete
+    assert 'id="bar"' in text and "concrete" in text  # single stacked bar + suggestions
+    assert "must contain ALL" in text  # stacked AND semantics

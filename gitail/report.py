@@ -54,8 +54,9 @@ def _rows(db: Path, pdf_base: str = GITHUB_PDF_BASE,
     materials = sorted({str(r["material"]) for r in rows if r["material"]})
     drawings = sorted({str(r["drawing"]) for r in rows})
     texts = sorted({str(r["text_raw"]) for r in rows if r["text_raw"]})[:300]
+    values = sorted({r["value"] for r in rows if r["value"] is not None})
     con.close()
-    return rows, projects, materials, drawings, texts
+    return rows, projects, materials, drawings, texts, values
 
 
 def _unindexed_pdfs(pdf_dir: Path, drawings_known: set[str]) -> list[dict]:
@@ -103,15 +104,12 @@ def write_html(db: Path, out: Path, pdf_dir: Path = Path("pdf"),
                drawings_dir: Path = Path("drawings"),
                github_base: str | None = None) -> Path:
     pdf_base = github_base or GITHUB_PDF_BASE
-    rows, projects, materials, drawings, texts = _rows(db, pdf_base=pdf_base)
+    rows, projects, materials, drawings, texts, values = _rows(db, pdf_base=pdf_base)
     unindexed = _unindexed_pdfs(Path(pdf_dir), {r["drawing"] for r in rows})
     payload = json.dumps(rows, ensure_ascii=False).replace("</", "<\\/")
-
-    def opts(vals):
-        return "\n".join(f'<option value="{v}"></option>' for v in vals)
-
-    proj_opts = '<option value="">All projects</option>\n' + "\n".join(
-        f'<option value="{p}">{p}</option>' for p in projects)
+    meta = {"materials": materials, "projects": projects, "drawings": drawings,
+            "texts": texts, "values": [str(v) for v in values]}
+    metajs = json.dumps(meta, ensure_ascii=False).replace("</", "<\\/")
     page = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -130,21 +128,29 @@ code{{background:#eee;padding:1px 4px;border-radius:4px}}
 .card{{background:#fff;border:1px solid #e3e3e3;border-radius:8px;padding:12px;margin:16px 0}}
 .hint{{font-size:13px;color:#555}}
 a.dxf{{font-weight:600}}
+#chips{{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}}
+.chip{{background:#111;color:#fff;border-radius:20px;padding:4px 6px 4px 12px;font-size:13px;display:flex;gap:6px;align-items:center}}
+.chip button{{background:#444;color:#fff;border:none;border-radius:50%;width:20px;height:20px;cursor:pointer;padding:0;line-height:1}}
+.chip .k{{opacity:.65}}
+#pick{{position:relative;flex:1;min-width:220px}}
+#bar{{width:100%;box-sizing:border-box}}
+#sugg{{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #ccc;border-radius:6px;max-height:260px;overflow:auto;display:none;z-index:10;box-shadow:0 4px 12px rgba(0,0,0,.15)}}
+#sugg .g{{background:#f0f0f0;font-size:11px;text-transform:uppercase;padding:4px 8px;color:#666;position:sticky;top:0}}
+#sugg .o{{padding:6px 8px;cursor:pointer;font-size:14px}}
+#sugg .o:hover{{background:#e8f0ff}}
+tr.hit td{{background:#fffbe8}}
+.dhead td{{background:#eef;font-weight:600}}
+.badge{{font-size:11px;background:#ffd;border:1px solid #cc9;border-radius:4px;padding:1px 5px;margin-left:6px}}
 </style></head><body>
 <header><h2 style="margin:0">gitail — search element history</h2>
-<div style="opacity:.75;font-size:13px">Static report, no server. Type to get suggestions — e.g. material <code>c</code> → concrete. Click a drawing to open its <b>PDF</b> (rendered view); <code>dxf</code> is the text source.</div></header>
+<div style="opacity:.75;font-size:13px">Static report, no server. One bar, stacked filters — type <code>concrete</code>, pick it, type <code>steel</code>, pick it: only drawings containing <b>both</b> remain. Click a drawing for its <b>PDF</b>.</div></header>
 <main>
+<div id="chips"></div>
 <div class="filters">
-<select id="proj">{proj_opts}</select>
-<input id="mat" list="dl-mat" placeholder="material (e.g. concrete)" style="flex:1;min-width:140px">
-<input id="val" placeholder="value (e.g. 3)" style="width:110px">
-<input id="q" list="dl-text" placeholder="text (e.g. TOUGHENED)" style="flex:2;min-width:180px">
-<input id="drw" list="dl-drw" placeholder="drawing (e.g. D-101)" style="flex:1;min-width:140px">
-<label style="align-self:center;font-size:13px"><input type="checkbox" id="ever"> ever (history)</label>
+<div id="pick"><input id="bar" placeholder="type to stack filters — e.g. concrete, steel, StageC… (Enter adds)" autocomplete="off"><div id="sugg"></div></div>
+<label style="align-self:center;font-size:13px"><input type="checkbox" id="ever"> ever (history counts)</label>
+<button id="clear" style="background:#fff">Clear</button>
 </div>
-<datalist id="dl-mat">{opts(materials)}</datalist>
-<datalist id="dl-drw">{opts(drawings)}</datalist>
-<datalist id="dl-text">{opts(texts)}</datalist>
 <div class="count" id="count"></div>
 <table><thead><tr>
 <th>project</th><th>drawing</th><th>element</th><th>material</th><th>value</th><th>text</th><th>status</th><th>commit</th><th>date</th>
@@ -163,34 +169,97 @@ UNINDEXED_SECTION
 
 <script>
 const ROWS = {payload};
-const proj=document.getElementById('proj'),mat=document.getElementById('mat'),
-      val=document.getElementById('val'),q=document.getElementById('q'),drw=document.getElementById('drw'),
-      ever=document.getElementById('ever'),body=document.getElementById('body'),
-      count=document.getElementById('count');
+const META = {metajs};
+const $=id=>document.getElementById(id);
+let CHIPS=[];
+function matchRow(r,k,v){{
+  v=v.toLowerCase();
+  if(k==='material')return (r.material||'').toLowerCase()===v;
+  if(k==='project')return (r.project||'').toLowerCase()===v;
+  if(k==='drawing')return (r.drawing||'').toLowerCase()===v;
+  if(k==='value')return String(r.value??'')===v;
+  return (r.text_raw||'').toLowerCase().includes(v);
+}}
+function drawingHas(rows,k,v){{return rows.some(r=>matchRow(r,k,v));}}
+function options(){{
+  const o=[];
+  META.materials.forEach(v=>o.push({{k:'material',v}}));
+  META.projects.forEach(v=>o.push({{k:'project',v}}));
+  META.drawings.forEach(v=>o.push({{k:'drawing',v}}));
+  (META.values||[]).forEach(v=>o.push({{k:'value',v}}));
+  META.texts.forEach(v=>o.push({{k:'text',v}}));
+  return o;
+}}
+function renderChips(){{
+  $('chips').innerHTML=CHIPS.map((c,i)=>`<span class="chip"><span class="k">${{esc(c.k)}}</span>${{esc(c.v)}}<button data-i="${{i}}">×</button></span>`).join('')
+    +(CHIPS.length?'':'<span class="hint">No filters — showing everything. Type below; each pick stacks (drawings must contain ALL).</span>');
+  $('chips').querySelectorAll('button').forEach(b=>b.onclick=()=>{{CHIPS.splice(+b.dataset.i,1);renderChips();render();}});
+}}
+function suggest(){{
+  const t=$('bar').value.toLowerCase().trim(),box=$('sugg');
+  if(!t){{box.style.display='none';return;}}
+  const hits=options().filter(o=>(o.k+':'+o.v).toLowerCase().includes(t)
+    && !CHIPS.some(c=>c.k===o.k&&c.v===o.v)).slice(0,60);
+  if(!hits.length){{box.style.display='none';return;}}
+  let g='';
+  box.innerHTML=hits.map((o,i)=>{{
+    const h=o.k!==g?`<div class="g">${{esc(o.k)}}</div>`:'';
+    g=o.k;
+    return h+`<div class="o" data-i="${{i}}">${{esc(o.k)}}:<b>${{esc(o.v)}}</b></div>`;
+  }}).join('');
+  box.style.display='block';
+  box.querySelectorAll('.o').forEach(el=>el.onclick=()=>{{
+    const o=hits[+el.dataset.i];
+    CHIPS.push(o);$('bar').value='';box.style.display='none';renderChips();render();
+  }});
+}}
+$('bar').addEventListener('input',suggest);
+$('bar').addEventListener('keydown',e=>{{
+  if(e.key==='Enter'){{
+    const first=$('sugg').querySelector('.o');
+    if(first){{first.click();}}
+    else if($('bar').value.trim()){{CHIPS.push({{k:'text',v:$('bar').value.trim()}});$('bar').value='';renderChips();render();}}
+  }}
+  if(e.key==='Escape'){{$('sugg').style.display='none';}}
+}});
+document.addEventListener('click',e=>{{if(!$('pick').contains(e.target))$('sugg').style.display='none';}});
+$('clear').onclick=()=>{{CHIPS=[];renderChips();render();}};
 function render(){{
-  const pj=proj.value.toLowerCase(),mt=mat.value.toLowerCase(),vl=val.value.trim(),
-        qt=q.value.toLowerCase(),dw=drw.value.toLowerCase(),ev=ever.checked;
-  const out=ROWS.filter(r=>{{
-    if(!ev && !r.is_current) return false;
-    if(pj && (r.project||'').toLowerCase()!==pj) return false;
-    // prefix-friendly: 'c' matches concrete (contains), autocomplete list shows options
-    if(mt && !(r.material||'').toLowerCase().includes(mt)) return false;
-    if(vl!=='' && String(r.value??'')!==vl) return false;
-    if(dw && !(r.drawing||'').toLowerCase().includes(dw)) return false;
-    if(qt && !(r.text_raw||'').toLowerCase().includes(qt)) return false;
-    return true;
-  }}).slice(0,1000);
-  count.textContent=out.length+' of '+ROWS.length+' rows (capped at 1000)';
-  body.innerHTML=out.map(r=>'<tr><td>'+esc(r.project||'—')+'</td>'
-    +'<td><a class="dxf" href="'+esc(r.pdf_rel||('pdf/'+r.drawing+'.pdf'))+'">📄 '+esc(r.drawing)+'</a> '
-    +'<a href="'+esc(r.pdf_github||'')+'" title="Open PDF on GitHub">↗</a> '
-    +'<a href="'+esc(r.dxf_rel)+'" title="DXF text source" style="font-size:11px">dxf</a></td>'
-    +'<td><code>'+esc(r.element_id)+'</code></td><td>'+esc(r.material||'')+'</td><td>'+esc(r.value??'')+'</td>'
-    +'<td>'+esc(r.text_raw||'')+'</td><td>'+esc(r.status||'')+'</td>'
-    +'<td><code>'+esc((r.commit_sha||'').slice(0,7))+'</code></td><td>'+esc(r.commit_date||'')+'</td></tr>').join('');
+  const ev=$('ever').checked;
+  const pool=ev?ROWS:ROWS.filter(r=>r.is_current);
+  const byD={{}};
+  pool.forEach(r=>{{(byD[r.drawing]=byD[r.drawing]||[]).push(r);}});
+  // qualifying drawings: every chip satisfied somewhere in the drawing
+  const scope=ev?ROWS:ROWS.filter(r=>r.is_current);
+  const scopeByD={{}};
+  scope.forEach(r=>{{(scopeByD[r.drawing]=scopeByD[r.drawing]||[]).push(r);}});
+  const qual=Object.keys(byD).filter(d=>CHIPS.every(c=>drawingHas(scopeByD[d]||[],c.k,c.v)));
+  qual.sort();
+  let htm='',nrows=0;
+  qual.forEach(d=>{{
+    const rs=(byD[d]||[]).slice().sort((a,b)=>String(a.element_id).localeCompare(String(b.element_id)));
+    const cur=rs.filter(r=>r.is_current);
+    const show=cur.length?cur:rs;
+    const first=show[0]||rs[0]||{{}};
+    const hist=ev&&CHIPS.length&&!show.some(r=>CHIPS.some(c=>matchRow(r,c.k,c.v)));
+    nrows+=show.length;
+    htm+=`<tr class="dhead"><td>${{esc(first.project||'—')}}</td>`
+      +`<td><a class="dxf" href="${{esc(first.pdf_rel||('pdf/'+d+'.pdf'))}}">📄 ${{esc(d)}}</a>${{hist?'<span class="badge">via history</span>':''}}</td>`
+      +`<td colspan="7">${{show.length}} element(s)</td></tr>`;
+    show.forEach(r=>{{
+      const hit=CHIPS.length&&CHIPS.some(c=>matchRow(r,c.k,c.v));
+      htm+=`<tr${{hit?' class="hit"':''}}><td></td><td></td><td><code>${{esc(r.element_id)}}</code></td>`
+        +`<td>${{esc(r.material||'')}}</td><td>${{esc(r.value??'')}}</td>`
+        +`<td>${{esc(r.text_raw||'')}}</td><td>${{esc(r.status||'')}}</td>`
+        +`<td><code>${{esc((r.commit_sha||'').slice(0,7))}}</code></td><td>${{esc(r.commit_date||'')}}</td></tr>`;
+    }});
+  }});
+  $('count').textContent=qual.length+' drawing(s), '+nrows+' rows'
+    +(CHIPS.length?' — must contain ALL '+CHIPS.length+' filter(s)':'');
+  $('body').innerHTML=htm||'<tr><td colspan="9">No drawings contain all stacked filters.</td></tr>';
 }}
 function esc(s){{return String(s).replace(/[&<>"]/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}}[c]));}}
-[proj,mat,val,q,drw].forEach(el=>el.addEventListener('input',render));ever.addEventListener('change',render);render();
+$('ever').addEventListener('change',render);renderChips();render();
 // add-drawing helper
 const addProj=document.getElementById('add-proj'),addNew=document.getElementById('add-newproj'),
       addFile=document.getElementById('add-file'),addCmds=document.getElementById('add-cmds');

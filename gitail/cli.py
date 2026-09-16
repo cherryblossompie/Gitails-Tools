@@ -137,19 +137,43 @@ def _table(rows: list[dict], cols=("project", "drawing", "element_id", "material
 
 
 @cli.command("find")
-@click.option("--material", default=None)
-@click.option("--value", default=None, type=float)
-@click.option("--text", "text_q", default=None)
-@click.option("--drawing", default=None)
-@click.option("--project", default=None, help="Project folder under drawings/ (e.g. StageC)")
+@click.option("--material", multiple=True, help="Repeatable; multiple values stack (drawings mode)")
+@click.option("--value", multiple=True, type=float)
+@click.option("--text", "text_q", multiple=True)
+@click.option("--drawing", multiple=True)
+@click.option("--project", multiple=True, help="Project folder under drawings/ (e.g. StageC)")
 @click.option("--ever", is_flag=True, help="Search all historical states, not just current")
+@click.option("--match", "match", type=click.Choice(["elements", "drawings"]), default="elements",
+              help="elements: rows matching all filters. drawings: drawings containing each filter (stacked).")
 @click.option("--json", "as_json", is_flag=True)
 @click.option("--db", default="index.sqlite")
-def find_cmd(material, value, text_q, drawing, project, ever, as_json, db):
-    """Search elements. Default: current state. --ever: full history."""
-    from .query import find
-    rows = find(Path(db), material=material, value=value, text=text_q,
-                drawing=drawing, project=project, ever=ever)
+def find_cmd(material, value, text_q, drawing, project, match, ever, as_json, db):
+    """Search elements. Repeat a flag to stack it: drawings containing EACH value win."""
+    from .query import find, search_stacked
+    stacked = [(k, str(v)) for k, vals in
+               (("material", material), ("value", value), ("text", text_q),
+                ("drawing", drawing), ("project", project)) for v in vals]
+    if match == "elements" and len(stacked) > 1:
+        match = "drawings"  # one element can't be two materials; user means stacked
+        click.echo("note: multiple filters -> matching DRAWINGS containing each", err=True)
+    if match == "drawings":
+        res = search_stacked(Path(db), stacked, ever=ever)
+        if as_json:
+            click.echo(json.dumps(res, indent=2, ensure_ascii=False))
+        elif not res["drawings"]:
+            click.echo("no drawings match all filters")
+        else:
+            for d in res["drawings"]:
+                flag = " (via history)" if d["via_history"] else ""
+                click.echo(f"== {d['drawing']}  [{d['project'] or 'no project'}]  {d['elements']} elements{flag}")
+            _table(res["rows"])
+        return
+    rows = find(Path(db),
+                material=material[0] if material else None,
+                value=value[0] if value else None,
+                text=text_q[0] if text_q else None,
+                drawing=drawing[0] if drawing else None,
+                project=project[0] if project else None, ever=ever)
     if as_json:
         click.echo(json.dumps(rows, indent=2, ensure_ascii=False))
     elif not rows:

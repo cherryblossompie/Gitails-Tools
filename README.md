@@ -33,6 +33,8 @@ No server, no web app. Two surfaces:
 # the brief's query — every drawing ever glazed 3mm, with revision + new value:
 gitail index --repo <drawings-repo> --db index.sqlite
 gitail find --db index.sqlite --material glass --value 3 --ever
+# stacked: repeat flags — only drawings containing EACH win (whole drawings shown):
+gitail find --db index.sqlite --material concrete --material steel
 gitail history e_9125db --db index.sqlite
 gitail changed --from <shaA> --to <shaB> --db index.sqlite
 gitail find --db index.sqlite --text TOUGHENED --json
