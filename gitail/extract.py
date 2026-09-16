@@ -12,7 +12,61 @@ from pathlib import Path
 from .semantics import parse_annotation
 
 ROUND_NDIGITS = 1  # 0.1 mm
-SUPPORTED = {"LINE", "LWPOLYLINE", "ARC", "CIRCLE", "HATCH", "TEXT", "MTEXT", "DIMENSION", "MULTILEADER"}
+SUPPORTED = {"LINE", "LWPOLYLINE", "POLYLINE", "ARC", "CIRCLE", "HATCH", "TEXT", "MTEXT", "DIMENSION", "MULTILEADER"}
+# DXF versions, oldest first. Brief requires R2018 (AC1032)+ as committed source.
+DXF_VERSION_ORDER = ["AC1009", "AC1015", "AC1018", "AC1021", "AC1024", "AC1027", "AC1032"]
+MIN_DXF_VERSION = "AC1032"
+
+
+def dxf_version(dxf_path: str | Path) -> str:
+    """$ACADVER of a DXF file (e.g. 'AC1032'), '' when unreadable. Never raises."""
+    try:
+        import ezdxf
+        return ezdxf.readfile(str(dxf_path)).dxfversion
+    except Exception:
+        return ""
+
+
+def version_supported(ver: str) -> bool:
+    try:
+        return DXF_VERSION_ORDER.index(ver) >= DXF_VERSION_ORDER.index(MIN_DXF_VERSION)
+    except ValueError:
+        return False
+
+
+def canonical_type(e) -> str:
+    """DXF type mapped to canonical state type.
+
+    Old-style 2D POLYLINE (pre-R2018 exports, e.g. Rhino) is geometrically a
+    lightweight polyline — normalize to LWPOLYLINE so a re-export does not
+    read as delete+add and identity survives across CAD round-trips.
+    """
+    t = e.dxftype()
+    if t == "POLYLINE":
+        return "LWPOLYLINE"
+    return t
+
+
+def _poly_points(e) -> list[tuple[float, float]]:
+    """2D vertices for LWPOLYLINE and legacy POLYLINE, rounded. Never raises."""
+    try:
+        if e.dxftype() == "POLYLINE":
+            return [(r1(p.x), r1(p.y)) for p in e.points()]
+        return [(r1(p[0]), r1(p[1])) for p in e.get_points()]
+    except Exception:
+        return []
+
+
+def _poly_closed(e) -> bool:
+    try:
+        if e.dxftype() == "POLYLINE":
+            closed = getattr(e, "is_closed", None)
+            if closed is None:
+                closed = bool(int(e.dxf.get("flags", 0)) & 1)
+            return bool(closed)
+        return bool(getattr(e, "closed", False))
+    except Exception:
+        return False
 
 
 def r1(v) -> float:
@@ -48,8 +102,8 @@ def _bbox_of_entity(e) -> tuple[float, float, float, float] | None:
             c = e.dxf.center
             rad = float(e.dxf.radius)
             return (float(c.x) - rad, float(c.y) - rad, float(c.x) + rad, float(c.y) + rad)
-        if t == "LWPOLYLINE":
-            pts = list(e.get_points())
+        if t in ("LWPOLYLINE", "POLYLINE"):
+            pts = _poly_points(e)
             xs = [float(p[0]) for p in pts]
             ys = [float(p[1]) for p in pts]
             if xs and ys:
@@ -199,13 +253,13 @@ def _linear_info(e):
             s, en = e.dxf.start, e.dxf.end
             vertices = [[r1(s.x), r1(s.y)], [r1(en.x), r1(en.y)]]
             length = r1(math.hypot(en.x - s.x, en.y - s.y))
-        elif t == "LWPOLYLINE":
-            pts = [(r1(p[0]), r1(p[1])) for p in e.get_points()]
+        elif t in ("LWPOLYLINE", "POLYLINE"):
+            pts = _poly_points(e)
             vertices = [list(p) for p in pts]
             total = 0.0
             for i in range(1, len(pts)):
                 total += math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])
-            if getattr(e, "closed", False) and len(pts) > 2:
+            if _poly_closed(e) and len(pts) > 2:
                 total += math.hypot(pts[0][0] - pts[-1][0], pts[0][1] - pts[-1][1])
             length = r1(total)
         elif t == "CIRCLE":
@@ -248,11 +302,12 @@ def extract_state(dxf_path: str | Path, materials_cfg: dict) -> list[dict]:
     out: list[dict] = []
     for e in msp:
         try:
-            type_ = e.dxftype()
+            raw_type = e.dxftype()
         except Exception:
             continue
-        if type_ not in SUPPORTED:
+        if raw_type not in SUPPORTED:
             continue
+        type_ = canonical_type(e)  # POLYLINE -> LWPOLYLINE (same geometry, stable identity)
         try:
             handle = str(e.dxf.handle)
         except Exception:
@@ -310,6 +365,8 @@ def extract_state(dxf_path: str | Path, materials_cfg: dict) -> list[dict]:
         rec["hatch_area"] = hatch_area
         rec["dim_defpoints"] = dim_defpoints
         rec["dim_style"] = dim_style
+        if raw_type != type_:
+            rec["dxf_type"] = raw_type  # e.g. POLYLINE normalized to LWPOLYLINE
         ix, iy = _insertion(e)
         rec["insert_x"] = ix
         rec["insert_y"] = iy

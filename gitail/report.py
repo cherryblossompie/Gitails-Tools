@@ -1,12 +1,13 @@
 """Static HTML + markdown views (no server). The search interface.
 
 Search page features:
-- project dropdown (from drawings/<project>/... layout) + autocomplete on
-  every field via <datalist> (type 'c' -> concrete, ...).
-- drawing names are links: relative drawings/<drawing>.dxf (works when the
-  report sits at the repo root) + GitHub blob link.
+- one stacked-filters bar (chips combine with AND at drawing level);
+  suggestions appear grouped by kind as you type.
+- collapsed drawing groups (click to expand matched rows); latest-commit
+  deletions render struck-through so nothing vanishes silently.
+- drawing names link their rendered PDF preview (+ GitHub links).
 - 'Add a drawing' helper: pick project + file, get the exact copy/extract/commit
-  commands (static pages cannot write files, so this prints commands to run).
+  commands (static pages cannot write files — use `gitail serve` for one-click).
 """
 from __future__ import annotations
 
@@ -44,6 +45,7 @@ def _rows(db: Path, pdf_base: str = GITHUB_PDF_BASE,
             latest[r["drawing"]] = r["commit_sha"]
     for r in rows:
         r["is_current"] = (r["commit_sha"] == latest.get(r["drawing"]) and r["status"] != "deleted")
+        r["is_deleted_latest"] = (r["commit_sha"] == latest.get(r["drawing"]) and r["status"] == "deleted")
         # PDF first (renders the drawing), DXF second (text source).
         r["pdf_rel"] = f"pdf/{r['drawing']}.pdf"
         r["pdf_github"] = f"{pdf_base}/{r['drawing']}.pdf"
@@ -139,6 +141,7 @@ a.dxf{{font-weight:600}}
 #sugg .o{{padding:6px 8px;cursor:pointer;font-size:14px}}
 #sugg .o:hover{{background:#e8f0ff}}
 tr.hit td{{background:#fffbe8}}
+tr.del td{{opacity:.6;text-decoration:line-through}}
 .dhead td{{background:#eef;font-weight:600;cursor:pointer}}
 .dhead td:first-child{{white-space:nowrap}}
 .badge{{font-size:11px;background:#ffd;border:1px solid #cc9;border-radius:4px;padding:1px 5px;margin-left:6px}}
@@ -231,35 +234,46 @@ document.addEventListener('click',e=>{{if(!$('pick').contains(e.target))$('sugg'
 $('clear').onclick=()=>{{CHIPS=[];renderChips();render();}};
 function render(){{
   const ev=$('ever').checked;
-  const pool=ev?ROWS:ROWS.filter(r=>r.is_current);
-  const byD={{}};
-  pool.forEach(r=>{{(byD[r.drawing]=byD[r.drawing]||[]).push(r);}});
-  const scope=ev?ROWS:ROWS.filter(r=>r.is_current);
+  const cur=ROWS.filter(r=>r.is_current);
+  const del=ROWS.filter(r=>r.is_deleted_latest);
+  const curByD={{}}, delByD={{}};
+  cur.forEach(r=>{{(curByD[r.drawing]=curByD[r.drawing]||[]).push(r);}});
+  del.forEach(r=>{{(delByD[r.drawing]=delByD[r.drawing]||[]).push(r);}});
+  // qualification scope: full history when ever, else current + latest deletions
+  const scope=ev?ROWS:cur.concat(del);
   const scopeByD={{}};
   scope.forEach(r=>{{(scopeByD[r.drawing]=scopeByD[r.drawing]||[]).push(r);}});
-  const qual=Object.keys(byD).filter(d=>CHIPS.every(c=>drawingHas(scopeByD[d]||[],c.k,c.v)));
+  const qual=Object.keys(Object.assign({{}},curByD,delByD))
+    .filter(d=>CHIPS.every(c=>drawingHas(scopeByD[d]||[],c.k,c.v)));
   qual.sort();
-  let htm='',nshow=0;
+  let htm='',nshow=0,ndel=0;
   qual.forEach(d=>{{
-    const all=(byD[d]||[]).slice().sort((a,b)=>String(a.element_id).localeCompare(String(b.element_id)));
-    const cur=all.filter(r=>r.is_current);
-    const vis=CHIPS.length?cur.filter(r=>CHIPS.some(c=>matchRow(r,c.k,c.v))):cur;
+    const all=(curByD[d]||[]).slice().sort((a,b)=>String(a.element_id).localeCompare(String(b.element_id)));
+    const vis=CHIPS.length?all.filter(r=>CHIPS.some(c=>matchRow(r,c.k,c.v))):all;
+    const dz=(delByD[d]||[]).slice().sort((a,b)=>String(a.element_id).localeCompare(String(b.element_id)));
     const open=EXPANDED.has(d);
-    const first=cur[0]||all[0]||{{}};
+    const first=all[0]||dz[0]||{{}};
     const hist=ev&&CHIPS.length&&!vis.length;
-    nshow+=open?vis.length:0;
+    nshow+=open?vis.length:0; ndel+=open?dz.length:0;
     htm+=`<tr class="dhead" data-d="${{esc(d)}}"><td><span class="arrow">${{open?'▼':'▶'}}</span> ${{esc(first.project||'—')}}</td>`
       +`<td><a class="dxf" href="${{esc(first.pdf_rel||('pdf/'+d+'.pdf'))}}">📄 ${{esc(d)}}</a>${{hist?'<span class="badge">via history</span>':''}}</td>`
-      +`<td colspan="7">${{vis.length}} of ${{all.length}} shown</td></tr>`;
+      +`<td colspan="7">${{vis.length}} of ${{all.length}} shown${{dz.length?` (+${{dz.length}} deleted)`:''}}</td></tr>`;
     if(open)vis.forEach(r=>{{
       htm+=`<tr class="hit"><td></td><td></td><td><code>${{esc(r.element_id)}}</code></td>`
         +`<td>${{esc(r.material||'')}}</td><td>${{esc(r.value??'')}}</td>`
         +`<td>${{esc(r.text_raw||'')}}</td><td>${{esc(r.status||'')}}</td>`
         +`<td><code>${{esc((r.commit_sha||'').slice(0,7))}}</code></td><td>${{esc(r.commit_date||'')}}</td></tr>`;
     }});
+    if(open)dz.forEach(r=>{{
+      htm+=`<tr class="del"><td></td><td></td><td><code>${{esc(r.element_id)}}</code></td>`
+        +`<td>${{esc(r.material||'')}}</td><td>${{esc(r.value??'')}}</td>`
+        +`<td>${{esc(r.text_raw||'')}}</td><td>deleted</td>`
+        +`<td><code>${{esc((r.commit_sha||'').slice(0,7))}}</code></td><td>${{esc(r.commit_date||'')}}</td></tr>`;
+    }});
   }});
   $('count').textContent=qual.length+' drawing(s)'
-    +(CHIPS.length?' — must contain ALL '+CHIPS.length+' filter(s). Click a drawing to expand matching rows.':' — click a drawing to expand');
+    +(CHIPS.length?' — must contain ALL '+CHIPS.length+' filter(s). Click a drawing to expand matching rows.':' — click a drawing to expand')
+    +(ndel?` (+${{ndel}} deleted)`:'');
   $('body').innerHTML=htm||'<tr><td colspan="9">No drawings contain all stacked filters.</td></tr>';
   $('body').querySelectorAll('tr.dhead').forEach(tr=>tr.onclick=e=>{{
     if(e.target.tagName==='A')return;

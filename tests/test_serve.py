@@ -150,3 +150,44 @@ def test_serve_upload_outside_repo_explains_itself(tmp_path):
         assert resp["committed"] != True and "not a git repo" in str(resp["committed"])
     finally:
         srv.shutdown()
+
+
+def test_serve_ingest_counts_deletions(tmp_path):
+    import subprocess
+    repo = tmp_path / "repo"
+    (repo / "drawings").mkdir(parents=True)
+    for d in ("state", "pdf"):
+        (repo / d).mkdir()
+    subprocess.run(["git", "-C", str(repo), "init", "-b", "main"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "t@t.t"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "t"], check=True)
+    (repo / "x.txt").write_text("x")
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-m", "init"], check=True, capture_output=True)
+    ctx = {"repo": str(repo), "db": str(repo / "index.sqlite"),
+           "drawings_dir": str(repo / "drawings"), "state_dir": str(repo / "state"),
+           "pdf_dir": str(repo / "pdf"), "config_dir": str(Path(__file__).parent.parent / "config")}
+    srv = _start(ctx)
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+    try:
+        code, body = _post_multipart(base, "", "D-1.dxf", _dxf_bytes("3mm GLASS"))
+        assert code == 200
+        assert json.loads(body)["statuses"].get("deleted") is None
+        # re-upload emptied: the old element must be reported, not hidden
+        doc = ezdxf.new("R2018")
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".dxf", delete=False) as f:
+            doc.saveas(f.name)
+            empty = Path(f.name).read_bytes()
+        code, body = _post_multipart(base, "", "D-1.dxf", empty)
+        assert code == 200, body[:300]
+        resp = json.loads(body)
+        assert resp["elements"] == 0
+        assert resp["statuses"].get("deleted") == 1  # MTEXT tombstoned
+        assert "deleted" in resp["iteration_note"]
+        with urllib.request.urlopen(base + "/api/search") as r:
+            res = json.loads(r.read())
+        assert [d["drawing"] for d in res["drawings"]] == ["D-1"]
+        assert res["rows"] == [] and len(res["deleted"]) == 1
+    finally:
+        srv.shutdown()

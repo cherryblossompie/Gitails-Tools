@@ -6,7 +6,7 @@ from pathlib import Path
 
 import click
 
-from .extract import extract_state
+from .extract import dxf_version, extract_state, version_supported
 from .identity import DEFAULT_TOLERANCE_MM, resolve
 from .semantics import load_materials
 
@@ -75,7 +75,15 @@ def extract(dxf_path, state_dir, config_dir, drawings_dir, tolerance, check):
             break
 
     materials_cfg = load_materials(config_dir / "materials.yaml") if (config_dir / "materials.yaml").exists() else {}
+    ver = dxf_version(dxf_path)
+    if ver and not version_supported(ver):
+        click.echo(f"WARNING: {dxf_path.name} is DXF {ver} (< R2018 AC1032) — "
+                   f"re-export as ASCII R2018+ for reliable history", err=True)
     current_raw = extract_state(dxf_path, materials_cfg)
+    if not current_raw:
+        click.echo(f"WARNING: {dxf_path.name} yielded 0 extractable entities "
+                   f"(supported: LINE, LWPOLYLINE incl. legacy POLYLINE, ARC, CIRCLE, "
+                   f"HATCH, TEXT, MTEXT, DIMENSION, MULTILEADER)", err=True)
     prev = _load_jsonl(state_jsonl) if state_jsonl.exists() else []
     idmap = _load_idmap(state_idmap, drawing) if state_idmap.exists() else {"drawing": drawing, "elements": {}}
     resolved, new_idmap, event, fuzzy = resolve(current_raw, prev, idmap, tolerance=tolerance)

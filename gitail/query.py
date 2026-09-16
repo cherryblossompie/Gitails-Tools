@@ -173,15 +173,47 @@ def search_stacked(db: Path, chips: list[tuple[str, str]], ever: bool = False) -
     by_drawing: dict[str, list[dict]] = {}
     for r in rows:
         by_drawing.setdefault(r["drawing"], []).append(r)
+    # latest-commit deletions per qualifying drawing — shown struck-through so
+    # removed elements never silently vanish (e.g. unsupported-entity uploads).
+    # Drawings surviving ONLY as deletions still list (deleted_only) when they
+    # match the chips (or unfiltered), so nothing disappears without a trace.
+    deleted: list[dict] = []
+    del_by_drawing: dict[str, list[dict]] = {}
+    dzq = (f"SELECT {sel} FROM element_state WHERE status='deleted' AND {_LATEST_PER_DRAWING}"
+           " ORDER BY drawing, element_id")
+    # per drawing, note whether any deleted row matches (for del-only inclusion)
+    seen_match: dict[str, bool] = {}
+    for r in (dict(x) for x in con.execute(dzq)):
+        r.setdefault("project", _project_of(r))
+        r["matched"] = any(_row_matches(r, k, v) for k, v in chips) if chips else True
+        if r["matched"]:
+            seen_match[r["drawing"]] = True
+        del_by_drawing.setdefault(r["drawing"], []).append(r)
+    for d in sorted(del_by_drawing):
+        # keep the drawing's FULL deleted set when it is listed live, when
+        # unfiltered, or when at least one deletion matches the chips
+        if d in drawings or not chips or seen_match.get(d):
+            deleted.extend(del_by_drawing[d])
     info = []
+    listed = set()
     for d in (drawings or sorted(by_drawing)):
         dr = by_drawing.get(d, [])
         info.append({"drawing": d,
                      "project": dr[0].get("project", "") if dr else (d.split("/")[0] if "/" in d else ""),
                      "elements": len(dr),
                      "via_history": bool(ever and chips and not any(x.get("matched") for x in dr))})
+        listed.add(d)
+    for d in sorted(del_by_drawing):
+        if d in listed:
+            continue
+        dd = del_by_drawing[d]
+        if chips and not any(x.get("matched") for x in dd):
+            continue
+        info.append({"drawing": d, "project": dd[0].get("project", ""),
+                     "elements": 0, "deleted_only": True, "via_history": False})
+    info.sort(key=lambda e: e["drawing"])
     con.close()
-    return {"drawings": info, "rows": rows}
+    return {"drawings": info, "rows": rows, "deleted": deleted}
 
 
 def find(db: Path, material=None, value=None, text=None, drawing=None, project=None, ever: bool = False) -> list[dict]:

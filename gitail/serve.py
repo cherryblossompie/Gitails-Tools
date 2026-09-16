@@ -171,15 +171,18 @@ def _search(ctx, query):
     get = lambda k: (query.get(k) or [""])[0] or None
     ever = (get("ever") or "") in ("1", "true", "on")
     raw_chips = query.get("chip") or []
-    if raw_chips:  # stacked single-bar mode
+    legacy = {k: get(k) for k in ("material", "value", "text", "drawing", "project")}
+    if raw_chips or not any(v not in (None, "") for v in legacy.values()):
+        # stacked single-bar mode (also the empty search: whole index incl.
+        # deleted-only drawings, so removals never vanish from the list)
         try:
             chips = [parse_chip(c) for c in raw_chips if c.strip()]
         except ValueError:
-            return {"drawings": [], "rows": [], "error": "bad chip"}
+            return {"drawings": [], "rows": [], "deleted": [], "error": "bad chip"}
         try:
             res = search_stacked(db, chips, ever=ever)
         except Exception:
-            return {"drawings": [], "rows": []}
+            return {"drawings": [], "rows": [], "deleted": []}
     else:  # legacy single-filter mode
         val = get("value")
         try:
@@ -200,7 +203,11 @@ def _search(ctx, query):
     for r in res["rows"]:
         r["pdf_url"] = f"/pdf/{r['drawing']}.pdf"
         r["dxf_url"] = f"/drawings/{r['drawing']}.dxf"
+    for r in res.get("deleted", []):
+        r["pdf_url"] = f"/pdf/{r['drawing']}.pdf"
+        r["dxf_url"] = f"/drawings/{r['drawing']}.dxf"
     res["rows"] = res["rows"][:2000]
+    res["deleted"] = res.get("deleted", [])[:500]
     return res
 
 
@@ -231,7 +238,7 @@ def _drawing_history(ctx, query) -> list:
 def _ingest_dxf(ctx, dxf: Path) -> dict:
     """extract + render + auto-commit + reindex for one uploaded DXF."""
     import json as _json
-    from .extract import extract_state
+    from .extract import dxf_version, extract_state, version_supported
     from .identity import resolve
     from .index import build_index
     from .render import render_dxf_to_pdf
@@ -246,7 +253,13 @@ def _ingest_dxf(ctx, dxf: Path) -> dict:
         drawing = dxf.stem
     cfg_path = Path(ctx["config_dir"]) / "materials.yaml"
     cfg = load_materials(cfg_path) if cfg_path.exists() else {}
+    warnings: list[str] = []
+    ver = dxf_version(dxf)
+    if ver and not version_supported(ver):
+        warnings.append(f"DXF {ver} < R2018 — re-export as ASCII R2018+ for reliable history")
     raw = extract_state(dxf, cfg)
+    if not raw:
+        warnings.append("0 extractable entities — check the file has LINE/LWPOLYLINE/ARC/CIRCLE/HATCH/TEXT/MTEXT/DIMENSION/MULTILEADER in modelspace")
     sj, si = state_dir / (drawing + ".jsonl"), state_dir / (drawing + ".idmap.json")
     existed = sj.exists()  # same project+filename before? then this is iteration N+1
     prev = [_json.loads(l) for l in sj.read_text(encoding="utf-8").splitlines() if l.strip()] if sj.exists() else []
@@ -299,16 +312,27 @@ def _ingest_dxf(ctx, dxf: Path) -> dict:
     except Exception:
         revs = []
     counts = Counter(r.get("status", "?") for r in resolved)
+    prev_ids = {p.get("element_id") for p in prev if p.get("element_id")}
+    live_ids = {r["element_id"] for r in resolved}
+    n_deleted = len(prev_ids - live_ids)
+    if n_deleted:
+        counts["deleted"] = n_deleted
     changed_now = sum(1 for r in resolved if r.get("status") not in ("unchanged", "new"))
+    if not existed:
+        note = "new drawing (revision 1)"
+    else:
+        bits = []
+        if changed_now:
+            bits.append(f"{changed_now} changed element(s)")
+        if n_deleted:
+            bits.append(f"{n_deleted} deleted")
+        note = f"iteration {len(revs)} of existing drawing" + (f" — {', '.join(bits)}" if bits else " — no element changes vs previous")
     nxt = ("git push to share" if committed is True
            else f"NOT committed ({committed}); run: git add drawings state pdf && git commit")
     return {"drawing": drawing, "project": drawing.split("/")[0] if "/" in drawing else "",
             "elements": len(resolved), "statuses": dict(counts),
             "revision": len(revs), "is_new_drawing": not existed,
-            "iteration_note": (f"new drawing (revision 1)" if not existed
-                               else f"iteration {len(revs)} of existing drawing"
-                                    + (f" — {changed_now} changed element(s)" if changed_now
-                                       else " — no element changes vs previous")),
+            "iteration_note": note, "warnings": warnings,
             "translation": event, "pdf": bool(pdf_ok), "committed": committed,
             "fuzzy": [{"element_id": f["element_id"], "confidence": f["confidence"]} for f in fuzzy],
             "index": idx,
@@ -346,6 +370,7 @@ pre{white-space:pre-wrap}
 #sugg .o{padding:6px 8px;cursor:pointer;font-size:14px}
 #sugg .o.sel,#sugg .o:hover{background:#e8f0ff}
 tr.hit td{background:#fffbe8}
+tr.del td{opacity:.6;text-decoration:line-through}
 .dhead td{background:#eef;font-weight:600;cursor:pointer}
 .dhead td:first-child{white-space:nowrap}
 .badge{font-size:11px;background:#ffd;border:1px solid #cc9;border-radius:4px;padding:1px 5px;margin-left:6px}
@@ -434,10 +459,13 @@ async function search(){
   const p=new URLSearchParams({ever:$('ever').checked?'1':''});
   CHIPS.forEach(c=>p.append('chip',c.k+':'+c.v));
   const res=await (await fetch('/api/search?'+p)).json();
-  const rows=res.rows||[],drws=res.drawings||[];
+  const rows=res.rows||[],drws=res.drawings||[],del=res.deleted||[];
   const shown=rows.filter(r=>r.matched).length;
+  const delByD={};
+  del.forEach(r=>{(delByD[r.drawing]=delByD[r.drawing]||[]).push(r);});
   $('count').textContent=drws.length+' drawing(s)'
-    +(CHIPS.length?`, ${shown} matching row(s) — must contain ALL ${CHIPS.length} filter(s)`:' — click a drawing to expand');
+    +(CHIPS.length?`, ${shown} matching row(s) — must contain ALL ${CHIPS.length} filter(s)`:' — click a drawing to expand')
+    +(del.length?` (+${del.length} deleted)`:'');
   const byD={};
   rows.forEach(r=>{(byD[r.drawing]=byD[r.drawing]||[]).push(r);});
   let htm='';
@@ -448,12 +476,16 @@ async function search(){
     htm+=`<tr class="dhead" data-d="${esc(d.drawing)}"><td><span class="arrow">${open?'▼':'▶'}</span> ${esc(d.project||'—')}</td>`
       +`<td><a class="dxf" href="/pdf/${esc(d.drawing)}.pdf">📄 ${esc(d.drawing)}</a>${d.via_history?'<span class="badge">via history</span>':''}`
       +` <button class="linkbtn revbtn" data-d="${esc(d.drawing)}">revisions</button></td>`
-      +`<td colspan="7">${vis.length} of ${all.length} shown</td></tr>`;
+      +`<td colspan="7">${vis.length} of ${all.length} shown${(delByD[d.drawing]||[]).length?` (+${delByD[d.drawing].length} deleted)`:''}</td></tr>`;
     htm+=`<tr class="revrow" data-d="${esc(d.drawing)}" style="display:none"><td colspan="9"></td></tr>`;
-    if(open)vis.forEach(r=>{htm+=`<tr class="hit"><td></td>`
+    if(open){vis.forEach(r=>{htm+=`<tr class="hit"><td></td>`
       +`<td></td><td><code>${esc(r.element_id)}</code></td><td>${esc(r.material||'')}</td><td>${esc(r.value??'')}</td>`
       +`<td>${esc(r.text_raw||'')}</td><td>${esc(r.status||'')}</td>`
       +`<td><code>${esc((r.commit_sha||'').slice(0,7))}</code></td><td>${esc(r.commit_date||'')}</td></tr>`;});
+    (delByD[d.drawing]||[]).forEach(r=>{htm+=`<tr class="del"><td></td>`
+      +`<td></td><td><code>${esc(r.element_id)}</code></td><td>${esc(r.material||'')}</td><td>${esc(r.value??'')}</td>`
+      +`<td>${esc(r.text_raw||'')}</td><td>deleted</td>`
+      +`<td><code>${esc((r.commit_sha||'').slice(0,7))}</code></td><td>${esc(r.commit_date||'')}</td></tr>`;});}
   });
   $('body').innerHTML=htm||'<tr><td colspan="9">No drawings contain all stacked filters.</td></tr>';
   $('body').querySelectorAll('tr.dhead').forEach(tr=>tr.onclick=e=>{
@@ -498,7 +530,8 @@ $('ubtn').addEventListener('click',async()=>{
   try{const j=JSON.parse(t);
     summary=(r.ok?'OK — '+j.iteration_note+' | ':'FAILED ')
       +j.elements+' element(s), pdf: '+(j.pdf?'yes':'FAILED')
-      +(j.committed===true?' — in search index':(' — NOT INDEXED: '+j.committed));
+      +(j.committed===true?' — in search index':(' — NOT INDEXED: '+j.committed))
+      +((j.warnings||[]).length?' | ⚠️ '+j.warnings.join(' | '):'');
   }catch(e){summary=(r.ok?'OK ':'FAILED '+r.status+' ')+t;}
   $('umsg').textContent=summary;
   await meta();renderChips();await search();

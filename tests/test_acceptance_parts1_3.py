@@ -237,3 +237,49 @@ def test_semantics_table(raw, expected):
     assert got is not None
     for k, v in expected.items():
         assert got.get(k) == v
+
+
+def test_polyline_normalized_to_lwpolyline(tmp_path):
+    """Old-style POLYLINE (pre-R2018/Rhino exports) extracts as LWPOLYLINE."""
+    from gitail.extract import canonical_type, dxf_version, version_supported
+    cfg = materials()
+    doc = make_doc()
+    doc.modelspace().add_polyline2d([(0, 0), (50, 0), (50, 20), (0, 20)],
+                                    close=True, dxfattribs={"layer": "A-DETL-CONC"})
+    dxf = tmp_path / "old.dxf"
+    save(doc, dxf)
+    raw_type = next(iter(ezdxf.readfile(str(dxf)).modelspace())).dxftype()
+    assert raw_type == "POLYLINE"
+    rows = extract_state(dxf, cfg)
+    assert len(rows) == 1
+    assert rows[0]["type"] == "LWPOLYLINE"
+    assert rows[0]["dxf_type"] == "POLYLINE"
+    assert rows[0]["vertices"] == [[0.0, 0.0], [50.0, 0.0], [50.0, 20.0], [0.0, 20.0]]
+    assert rows[0]["length"] == pytest.approx(140.0)
+    assert version_supported(dxf_version(dxf))
+    assert not version_supported("AC1021")
+
+
+def test_polyline_keeps_identity_across_reexport(tmp_path):
+    """LWPOLYLINE redrawn as legacy POLYLINE keeps its element_id (tier-2)."""
+    cfg = materials()
+    doc = make_doc()
+    doc.modelspace().add_lwpolyline([(0, 0), (50, 0), (50, 20), (0, 20)], close=True,
+                                    dxfattribs={"layer": "A-DETL-CONC"})
+    dxf1 = tmp_path / "v1.dxf"
+    save(doc, dxf1)
+    v1raw = extract_state(dxf1, cfg)
+    idmap = {"drawing": "D", "elements": {}}
+    v1, idmap, _, _ = resolve(v1raw, [], idmap)
+    doc2 = make_doc()
+    doc2.modelspace().add_polyline2d([(0, 0), (50, 0), (50, 20), (0, 20)],
+                                     close=True, dxfattribs={"layer": "A-DETL-CONC"})
+    dxf2 = tmp_path / "v2.dxf"
+    save(doc2, dxf2)
+    v2raw = extract_state(dxf2, cfg)
+    for r in v2raw:  # force new handles so tier-1 cannot fire
+        r["dxf_handle"] = "NEW" + r["dxf_handle"]
+    v2, _, _, _ = resolve(v2raw, v1, idmap)
+    assert v2[0]["element_id"] == v1[0]["element_id"]
+    assert v2[0]["match_tier"] == "fingerprint"
+    assert v2[0]["status"] == "unchanged"

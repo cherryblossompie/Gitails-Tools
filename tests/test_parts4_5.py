@@ -156,6 +156,27 @@ def test_stacked_and_across_chips(tmp_path):
     assert any(r["matched"] for r in res["rows"])
 
 
+def test_stacked_lists_latest_deletions(tmp_path):
+    repo = make_repo(tmp_path)
+    write_dxf(repo / "drawings" / "A.dxf", "3mm GLASS")
+    extract_to_repo(repo / "drawings" / "A.dxf", repo)
+    git(repo, "add", ".")
+    git(repo, "commit", "-m", "A with glass")
+    # wipe the drawing's content: element deleted in latest revision
+    doc = ezdxf.new("R2018")
+    doc.saveas(str(repo / "drawings" / "A.dxf"))
+    extract_to_repo(repo / "drawings" / "A.dxf", repo)
+    git(repo, "add", ".")
+    git(repo, "commit", "-m", "A emptied")
+    db = tmp_path / "index.sqlite"
+    build_index(repo, db)
+    res = search_stacked(db, [("material", "glass")])
+    assert [d["drawing"] for d in res["drawings"]] == ["A"]  # found via its deletion
+    assert res["rows"] == []
+    assert len(res["deleted"]) == 2  # MTEXT + LINE tombstones
+    assert all(x["status"] == "deleted" for x in res["deleted"])
+
+
 def test_cli_extract_check(tmp_path):
     repo = make_repo(tmp_path)
     dxf = repo / "drawings" / "D-101.dxf"
