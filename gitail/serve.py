@@ -45,9 +45,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/history":
             return self._json(_history(ctx, query))
         if path.startswith("/pdf/"):
-            return self._file(Path(ctx["pdf_dir"]) / path[len("/pdf/"):], "application/pdf")
+            return self._file(Path(ctx["pdf_dir"]), path[len("/pdf/"):], "application/pdf")
         if path.startswith("/drawings/"):
-            return self._file(Path(ctx["drawings_dir"]) / path[len("/drawings/"):], "image/vnd.dxf")
+            return self._file(Path(ctx["drawings_dir"]), path[len("/drawings/"):], "image/vnd.dxf")
         return self._text(404, "not found")
 
     def do_POST(self):
@@ -66,22 +66,19 @@ class Handler(BaseHTTPRequestHandler):
     def _text(self, code, msg):
         self._send(code, "text/plain; charset=utf-8", msg.encode("utf-8"))
 
-    def _file(self, path: Path, ctype: str):
+    def _file(self, base: Path, sub: str, ctype: str):
+        # Browsers percent-encode spaces etc. (/pdf/test/test%2001.pdf) —
+        # decode before touching disk, and jail the result inside base.
+        base = Path(base).resolve()
+        target = (base / urllib.parse.unquote(sub)).resolve()
         try:
-            rel = path.resolve().relative_to(Path.cwd().resolve())
+            target.relative_to(base)
         except ValueError:
-            try:
-                # allow absolute ctx dirs outside cwd
-                data = Path(path).read_bytes()
-            except OSError:
-                return self._text(404, "not found")
-            else:
-                return self._send(200, ctype, data)
-        _ = rel
-        if not path.is_file():
+            return self._text(403, "forbidden")
+        if not target.is_file():
             return self._text(404, "not found")
         try:
-            return self._send(200, ctype, path.read_bytes())
+            return self._send(200, ctype, target.read_bytes())
         except OSError:
             return self._text(500, "read error")
 

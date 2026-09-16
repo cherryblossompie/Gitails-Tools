@@ -97,6 +97,26 @@ def test_serve_search_and_upload(tmp_path):
         srv.shutdown()
 
 
+def test_serve_files_with_spaces_and_traversal(tmp_path):
+    repo = tmp_path / "repo"
+    (repo / "pdf" / "test").mkdir(parents=True)
+    (repo / "pdf" / "test" / "test 01.pdf").write_bytes(b"%PDF-1.4 fake")
+    ctx = {"repo": str(repo), "db": str(repo / "index.sqlite"),
+           "drawings_dir": str(repo / "drawings"), "state_dir": str(repo / "state"),
+           "pdf_dir": str(repo / "pdf"), "config_dir": str(Path(__file__).parent.parent / "config")}
+    srv = _start(ctx)
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+    try:
+        # browser-encoded space must resolve
+        code, body = _get(base, "/pdf/test/test%2001.pdf")
+        assert code == 200 and body == b"%PDF-1.4 fake"
+        # path traversal must not escape
+        code, _ = _get(base, "/pdf/..%2f..%2fsecret.txt")
+        assert code in (403, 404)
+    finally:
+        srv.shutdown()
+
+
 def test_serve_upload_outside_repo_explains_itself(tmp_path):
     plain = tmp_path / "notarepo"
     (plain / "drawings").mkdir(parents=True)
