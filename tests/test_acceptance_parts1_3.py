@@ -233,7 +233,7 @@ def test_7_unparseable_kept_searchable(tmp_path):
     ("2mm TOUGHENED GLASS", {"material": "glass", "value": 2, "unit": "mm", "qualifier": "toughened"}),
     ("INTERNAL TIMBER LINING", {"material": "timber", "part": "lining"}),
     ("SELECTED TIMBER DECKING", {"material": "timber", "part": "decking"}),
-    ("TYPICAL TIMBER ENTRY DOOR", {"material": "timber", "part": "entry"}),
+    ("TYPICAL TIMBER ENTRY DOOR", {"material": "timber", "part": "entry", "qualifier": "typical"}),
     ("ENTRY MAT", {"part": "entry"}),
     ("WALLS: T1", {"part": "wall"}),
 ])

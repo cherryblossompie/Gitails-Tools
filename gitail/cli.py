@@ -139,6 +139,8 @@ def _short(v):
 
 
 def _table(rows: list[dict], cols=("project", "drawing", "element_id", "material", "part", "value", "text_raw", "status", "commit_sha", "author")):
+    extra = [c for c in ("confidence", "attribution_chain") if any(r.get(c) for r in rows)]
+    cols = tuple(list(cols) + extra)
     disp = [{**r, "commit_sha": _short(r.get("commit_sha"))} for r in rows]
     widths = {c: max([len(c)] + [len(str(r.get(c) or "")) for r in disp]) for c in cols}
     click.echo("  ".join(c.ljust(widths[c]) for c in cols))
@@ -156,9 +158,16 @@ def _table(rows: list[dict], cols=("project", "drawing", "element_id", "material
 @click.option("--ever", is_flag=True, help="Search all historical states, not just current")
 @click.option("--match", "match", type=click.Choice(["elements", "drawings"]), default="elements",
               help="elements: rows matching all filters. drawings: drawings containing each filter (stacked).")
+@click.option("--tolerance", default=0.0, type=float,
+              help="Thickness tolerance ±mm around --value (exact by default)")
+@click.option("--include-unattributed", is_flag=True,
+              help="Include loose numbers bound to no material (off by default)")
+@click.option("--include-low-confidence", is_flag=True,
+              help="Include low-confidence/conflicting attributions (off by default)")
 @click.option("--json", "as_json", is_flag=True)
 @click.option("--db", default="index.sqlite")
-def find_cmd(material, part, value, text_q, drawing, project, match, ever, as_json, db):
+def find_cmd(material, part, value, text_q, drawing, project, match, ever, tolerance,
+             include_unattributed, include_low_confidence, as_json, db):
     """Search elements. Repeat a flag to stack it: drawings containing EACH value win."""
     from .query import find, search_stacked
     stacked = [(k, str(v)) for k, vals in
@@ -168,7 +177,9 @@ def find_cmd(material, part, value, text_q, drawing, project, match, ever, as_js
         match = "drawings"  # one element can't be two materials; user means stacked
         click.echo("note: multiple filters -> matching DRAWINGS containing each", err=True)
     if match == "drawings":
-        res = search_stacked(Path(db), stacked, ever=ever)
+        res = search_stacked(Path(db), stacked, ever=ever, tolerance=tolerance,
+                             include_low=include_low_confidence,
+                             include_unattr=include_unattributed)
         if as_json:
             click.echo(json.dumps(res, indent=2, ensure_ascii=False))
         elif not res["drawings"]:
@@ -185,7 +196,9 @@ def find_cmd(material, part, value, text_q, drawing, project, match, ever, as_js
                 value=value[0] if value else None,
                 text=text_q[0] if text_q else None,
                 drawing=drawing[0] if drawing else None,
-                project=project[0] if project else None, ever=ever)
+                project=project[0] if project else None, ever=ever,
+                tolerance=tolerance, include_unattr=include_unattributed,
+                include_low_confidence=include_low_confidence)
     if as_json:
         click.echo(json.dumps(rows, indent=2, ensure_ascii=False))
     elif not rows:

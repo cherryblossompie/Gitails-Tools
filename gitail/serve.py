@@ -309,6 +309,12 @@ def _search(ctx, query):
                 "ref_images": unindexed_images(imgdir, set())}
     get = lambda k: (query.get(k) or [""])[0] or None
     ever = (get("ever") or "") in ("1", "true", "on")
+    try:
+        tolerance = float(get("tolerance") or 0.0)
+    except (TypeError, ValueError):
+        tolerance = 0.0
+    include_low = (get("include_low") or "") in ("1", "true", "on")
+    include_unattr = (get("include_unattr") or "") in ("1", "true", "on")
     raw_chips = query.get("chip") or []
     legacy = {k: get(k) for k in ("material", "value", "text", "drawing", "project")}
     if raw_chips or not any(v not in (None, "") for v in legacy.values()):
@@ -319,7 +325,8 @@ def _search(ctx, query):
         except ValueError:
             return {"drawings": [], "rows": [], "deleted": [], "error": "bad chip"}
         try:
-            res = search_stacked(db, chips, ever=ever)
+            res = search_stacked(db, chips, ever=ever, tolerance=tolerance,
+                                 include_low=include_low, include_unattr=include_unattr)
         except Exception:
             return {"drawings": [], "rows": [], "deleted": []}
     else:  # legacy single-filter mode
@@ -328,7 +335,9 @@ def _search(ctx, query):
             rows = find(db, material=get("material"),
                         value=float(val) if val not in (None, "") else None,
                         text=get("text"), drawing=get("drawing"),
-                        project=get("project"), ever=ever)
+                        project=get("project"), ever=ever, tolerance=tolerance,
+                        include_unattr=include_unattr,
+                        include_low_confidence=include_low)
         except Exception:
             rows = []
         for r in rows:
@@ -580,6 +589,9 @@ tr.del td{opacity:.6;text-decoration:line-through}
 <div class="filters">
 <div id="pick"><input id="bar" placeholder="type to stack filters — e.g. concrete, steel, StageC… (Enter adds)" autocomplete="off"><div id="sugg"></div></div>
 <label style="align-self:center;font-size:13px"><input type="checkbox" id="ever"> ever (history counts)</label>
+<input id="tol" placeholder="±mm" title="thickness tolerance around value chips" style="width:64px">
+<label style="align-self:center;font-size:13px" title="include loose numbers bound to no material"><input type="checkbox" id="incU"> unattributed</label>
+<label style="align-self:center;font-size:13px" title="include low-confidence/conflicting attributions"><input type="checkbox" id="incL"> low-conf</label>
 <button id="clear" style="background:#fff;color:#111">Clear</button>
 <button id="expall" class="linkbtn" title="expand all drawings">Expand all</button>
 <button id="colall" class="linkbtn" title="collapse all drawings">Collapse all</button>
@@ -644,7 +656,9 @@ $('bar').addEventListener('keydown',e=>{
 document.addEventListener('click',e=>{if(!$('pick').contains(e.target))$('sugg').style.display='none';});
 $('clear').onclick=()=>{CHIPS=[];renderChips();search();};
 async function search(){
-  const p=new URLSearchParams({ever:$('ever').checked?'1':''});
+  const p=new URLSearchParams({ever:$('ever').checked?'1':'',
+    tolerance:$('tol').value.trim(), include_low:$('incL').checked?'1':'',
+    include_unattr:$('incU').checked?'1':''});
   CHIPS.forEach(c=>p.append('chip',c.k+':'+c.v));
   const res=await (await fetch('/api/search?'+p)).json();
   const rows=res.rows||[],drws=res.drawings||[],del=res.deleted||[];
@@ -703,7 +717,9 @@ async function search(){
 }
 let EXPANDED=new Set();
 $('expall').onclick=async()=>{
-  const p=new URLSearchParams({ever:$('ever').checked?'1':''});
+  const p=new URLSearchParams({ever:$('ever').checked?'1':'',
+    tolerance:$('tol').value.trim(), include_low:$('incL').checked?'1':'',
+    include_unattr:$('incU').checked?'1':''});
   CHIPS.forEach(c=>p.append('chip',c.k+':'+c.v));
   const res=await (await fetch('/api/search?'+p)).json();
   (res.drawings||[]).forEach(d=>EXPANDED.add(d.drawing));
@@ -711,6 +727,10 @@ $('expall').onclick=async()=>{
 };
 $('colall').onclick=()=>{EXPANDED.clear();search();};
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function confBadge(r){
+  if(!r.confidence)return '';
+  return `<span class="badge" title="attribution ${esc(r.attribution_chain||'')}">${esc(r.confidence)}</span>`;
+}
 function matGroups(rows){
   const g={};
   rows.forEach(r=>{const m=r.material||'—';(g[m]=g[m]||[]).push(r);});
@@ -718,11 +738,14 @@ function matGroups(rows){
 }
 function elRow(r,cls,status){
   return `<tr class="${cls}"><td></td>`
-    +`<td></td><td><code>${esc(r.element_id)}</code></td><td>${esc(r.material||'')}</td><td>${esc(r.part||'')}</td><td>${esc(r.value??'')}</td>`
+    +`<td></td><td><code>${esc(r.element_id)}</code></td><td>${esc(r.material||'')}${confBadge(r)}</td><td>${esc(r.part||'')}</td><td>${esc(r.value??'')}</td>`
     +`<td>${esc(r.text_raw||'')}</td><td>${status||esc(r.status||'')}</td>`
     +`<td><code>${esc((r.commit_sha||'').slice(0,7))}</code></td><td>${esc(r.commit_date||'')}</td></tr>`;
 }
 $('ever').addEventListener('change',search);
+$('tol').addEventListener('input',search);
+$('incL').addEventListener('change',search);
+$('incU').addEventListener('change',search);
 $('ubtn').addEventListener('click',async()=>{
   const f=$('ufile').files[0];if(!f){$('umsg').textContent='Pick a file first.';return;}
   const fd=new FormData();

@@ -48,6 +48,9 @@ def _rows(db: Path, pdf_base: str = GITHUB_PDF_BASE,
     for r in rows:
         r["is_current"] = (r["commit_sha"] == latest.get(r["drawing"]) and r["status"] != "deleted")
         r["is_deleted_latest"] = (r["commit_sha"] == latest.get(r["drawing"]) and r["status"] == "deleted")
+        # bound attributions for 7.8 chip evaluation (material/value chips
+        # match these, never loose row values)
+        r["bound"] = []
         # PDF first (renders the drawing), DXF second (text source).
         r["pdf_rel"] = f"pdf/{r['drawing']}.pdf"
         r["pdf_github"] = f"{pdf_base}/{r['drawing']}.pdf"
@@ -61,6 +64,17 @@ def _rows(db: Path, pdf_base: str = GITHUB_PDF_BASE,
             "SELECT DISTINCT part FROM element_state WHERE part IS NOT NULL AND part!=''"))
     except Exception:
         parts = []
+    try:
+        by_el: dict[tuple, list] = {}
+        for a in con.execute("SELECT element_id, commit_sha, material, part, value,"
+                             " unit, qualifier, confidence, chain FROM attribution"):
+            by_el.setdefault((a[0], a[1]), []).append(
+                {"material": a[2], "part": a[3], "value": a[4], "unit": a[5],
+                 "qualifier": a[6], "confidence": a[7], "chain": a[8]})
+        for r in rows:
+            r["bound"] = by_el.get((r.get("element_id"), r.get("commit_sha")), [])
+    except Exception:
+        pass
     drawings = sorted({str(r["drawing"]) for r in rows})
     texts = sorted({str(r["text_raw"]) for r in rows if r["text_raw"]})[:300]
     values = sorted({r["value"] for r in rows if r["value"] is not None})
@@ -182,6 +196,9 @@ tr.del td{{opacity:.6;text-decoration:line-through}}
 <div class="filters">
 <div id="pick"><input id="bar" placeholder="type to stack filters — e.g. concrete, steel, StageC… (Enter adds)" autocomplete="off"><div id="sugg"></div></div>
 <label style="align-self:center;font-size:13px"><input type="checkbox" id="ever"> ever (history counts)</label>
+<input id="tol" placeholder="±mm" title="thickness tolerance around value chips" style="width:64px">
+<label style="align-self:center;font-size:13px" title="include loose numbers bound to no material"><input type="checkbox" id="incU"> unattributed</label>
+<label style="align-self:center;font-size:13px" title="include low-confidence/conflicting attributions"><input type="checkbox" id="incL"> low-conf</label>
 <button id="clear" style="background:#fff">Clear</button>
 <button id="expall" class="linkbtn">Expand all</button>
 <button id="colall" class="linkbtn">Collapse all</button>
@@ -209,16 +226,30 @@ const ORPHAN_IMGS = {orphanjs};
 const META = {metajs};
 const $=id=>document.getElementById(id);
 let CHIPS=[];
-function matchRow(r,k,v){{
-  v=v.toLowerCase();
-  if(k==='material')return (r.material||'').toLowerCase()===v;
+function boundOk(a,tol,incL,incU){{
+  return a.confidence==='high'||a.confidence==='medium'||(incL&&a.confidence==='low');
+}}
+function matchRow(r,k,v,tol,incL,incU){{
+  v=String(v).toLowerCase();
+  if(k==='material'){{
+    if(r.bound&&r.bound.length)return r.bound.some(a=>(a.material||'').toLowerCase()===v&&boundOk(a,tol,incL,incU));
+    return (r.material||'').toLowerCase()===v;
+  }}
+  if(k==='value'){{
+    const num=parseFloat(v);
+    if(r.bound&&r.bound.length)return r.bound.some(a=>{{
+      if(a.value===null||a.value===undefined||isNaN(num)||Math.abs(parseFloat(a.value)-num)>tol)return false;
+      if(a.material===null||a.material===undefined)return !!incU;
+      return boundOk(a,tol,incL,incU);
+    }});
+    return String(r.value??'')===v;
+  }}
   if(k==='part')return (r.part||'').toLowerCase()===v;
   if(k==='project')return (r.project||'').toLowerCase()===v;
   if(k==='drawing')return (r.drawing||'').toLowerCase()===v;
-  if(k==='value')return String(r.value??'')===v;
   return (r.text_raw||'').toLowerCase().includes(v);
 }}
-function drawingHas(rows,k,v){{return rows.some(r=>matchRow(r,k,v));}}
+function drawingHas(rows,k,v,tol,incL,incU){{return rows.some(r=>matchRow(r,k,v,tol,incL,incU));}}
 function options(){{
   const o=[];
   META.materials.forEach(v=>o.push({{k:'material',v}}));
@@ -265,6 +296,8 @@ document.addEventListener('click',e=>{{if(!$('pick').contains(e.target))$('sugg'
 $('clear').onclick=()=>{{CHIPS=[];renderChips();render();}};
 function render(){{
   const ev=$('ever').checked;
+  const tol=parseFloat($('tol').value)||0;
+  const incL=$('incL').checked, incU=$('incU').checked;
   const cur=ROWS.filter(r=>r.is_current);
   const del=ROWS.filter(r=>r.is_deleted_latest);
   const curByD={{}}, delByD={{}};
@@ -275,12 +308,12 @@ function render(){{
   const scopeByD={{}};
   scope.forEach(r=>{{(scopeByD[r.drawing]=scopeByD[r.drawing]||[]).push(r);}});
   const qual=Object.keys(Object.assign({{}},curByD,delByD))
-    .filter(d=>CHIPS.every(c=>drawingHas(scopeByD[d]||[],c.k,c.v)));
+    .filter(d=>CHIPS.every(c=>drawingHas(scopeByD[d]||[],c.k,c.v,tol,incL,incU)));
   qual.sort();
   let htm='',nshow=0,ndel=0;
   qual.forEach(d=>{{
     const all=(curByD[d]||[]).slice().sort((a,b)=>String(a.element_id).localeCompare(String(b.element_id)));
-    const vis=CHIPS.length?all.filter(r=>CHIPS.some(c=>matchRow(r,c.k,c.v))):all;
+    const vis=CHIPS.length?all.filter(r=>CHIPS.some(c=>matchRow(r,c.k,c.v,tol,incL,incU))):all;
     const dz=(delByD[d]||[]).slice().sort((a,b)=>String(a.element_id).localeCompare(String(b.element_id)));
     const open=EXPANDED.has(d);
     const first=all[0]||dz[0]||{{}};
@@ -330,11 +363,19 @@ function matGroups(rows){{
 }}
 function elRow(r,cls,status){{
   return `<tr class="${{cls}}"><td></td><td></td><td><code>${{esc(r.element_id)}}</code></td>`
-    +`<td>${{esc(r.material||'')}}</td><td>${{esc(r.part||'')}}</td><td>${{esc(r.value??'')}}</td>`
+    +`<td>${{esc(r.material||'')}}${{confBadge(r)}}</td><td>${{esc(r.part||'')}}</td><td>${{esc(r.value??'')}}</td>`
     +`<td>${{esc(r.text_raw||'')}}</td><td>${{status||esc(r.status||'')}}</td>`
     +`<td><code>${{esc((r.commit_sha||'').slice(0,7))}}</code></td><td>${{esc(r.commit_date||'')}}</td></tr>`;
 }}
-$('ever').addEventListener('change',render);renderChips();render();
+function confBadge(r){{
+  const b=(r.bound||[]).filter(a=>a.confidence)[0];
+  if(!b)return '';
+  return `<span class="badge" title="attribution ${{esc(b.chain||'')}}">${{esc(b.confidence)}}</span>`;
+}}
+$('ever').addEventListener('change',render);
+$('tol').addEventListener('input',render);
+$('incL').addEventListener('change',render);
+$('incU').addEventListener('change',render);renderChips();render();
 // add-drawing helper
 const addProj=document.getElementById('add-proj'),addNew=document.getElementById('add-newproj'),
       addFile=document.getElementById('add-file'),addCmds=document.getElementById('add-cmds');

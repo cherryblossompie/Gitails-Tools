@@ -131,7 +131,122 @@ def parse_chip(s: str) -> tuple[str, str]:
     raise ValueError(f"empty chip: {s!r}")
 
 
-def search_stacked(db: Path, chips: list[tuple[str, str]], ever: bool = False) -> dict:
+def _attribution_map(con, pairs: list[tuple[str, str]]) -> dict:
+    """Attribution rows keyed (element_id, commit_sha), chunked for SQLite limits."""
+    out: dict = {}
+    names = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if "attribution" not in names:
+        return out
+    cols = ["element_id", "commit_sha", "drawing", "material", "part", "value",
+            "unit", "qualifier", "confidence", "chain", "conflict"]
+    pairs = [(e, c) for e, c in pairs if e and c]
+    for i in range(0, len(pairs), 400):
+        chunk = pairs[i:i + 400]
+        q = (f"SELECT {','.join(cols)} FROM attribution WHERE "
+             + " OR ".join(["(element_id=? AND commit_sha=?)"] * len(chunk)))
+        args = [x for p in chunk for x in p]
+        for r in con.execute(q, args):
+            d = dict(r)
+            out.setdefault((d["element_id"], d["commit_sha"]), []).append(d)
+    return out
+
+
+_CONF_RANK = {"high": 0, "medium": 1, "low": 2}
+
+
+def _attrib_satisfies(a: dict, kind: str, value: str, tolerance: float,
+                      include_low: bool, include_unattr: bool) -> bool:
+    """Does one attribution row satisfy a material/value chip (7.8)?"""
+    conf_ok = (a.get("confidence") in ("high", "medium")
+               or (include_low and a.get("confidence") == "low"))
+    if kind == "material":
+        return (a.get("material") or "").lower() == (value or "").lower() and conf_ok
+    if kind == "value":
+        try:
+            num = float(value)
+        except (TypeError, ValueError):
+            return False
+        v = a.get("value")
+        if v is None or abs(float(v) - num) > tolerance:
+            return False
+        if a.get("material") is None:  # loose unattributed number
+            return bool(include_unattr)
+        return conf_ok
+    return False
+
+
+def _best_attribution(attribs: list, chips: list, tolerance: float,
+                      include_low: bool, include_unattr: bool):
+    """The attribution to display for a row: prefer chip-satisfying, then rank."""
+    cands = [a for a in attribs
+             for (k, v) in chips if k in ("material", "value")
+             if _attrib_satisfies(a, k, v, tolerance, include_low, include_unattr)]
+    pool = cands or attribs
+    if not pool:
+        return None
+    return min(pool, key=lambda a: (_CONF_RANK.get(a.get("confidence"), 3),
+                                    a.get("element_id") or ""))
+
+
+def _chip_hit(row: dict, attribs: list, kind: str, value: str, tolerance: float,
+              include_low: bool, include_unattr: bool) -> bool:
+    if kind in ("material", "value"):
+        if attribs:
+            return any(_attrib_satisfies(a, kind, value, tolerance, include_low, include_unattr)
+                       for a in attribs)
+        # pre-attribution index (no rows for this element): row fields
+        return _row_matches(row, kind, value)
+    return _row_matches(row, kind, value)
+
+
+CONF_OK = ("high", "medium")
+
+
+def _conf_list(include_low: bool) -> str:
+    return "('high','medium','low')" if include_low else "('high','medium')"
+
+
+def _attr_latest(alias_outer: str = "e") -> str:
+    """Latest attribution commit for the outer row's drawing."""
+    return (f"(SELECT commit_sha FROM attribution AS _a WHERE _a.drawing={alias_outer}.drawing"
+            " ORDER BY _a.rowid DESC LIMIT 1)")
+
+
+def _attr_exists(kind: str, val: str, current_only: bool, tolerance: float,
+                 include_low: bool, include_unattr: bool, outer: str = "e") -> tuple[str, list]:
+    """EXISTS attribution for a material/value chip (7.8 bound-only).
+
+    A material-plus-value criterion matches only values BOUND to that material
+    at medium+ confidence — never loose numbers pooled at drawing level.
+    """
+    conf = _conf_list(include_low)
+    if kind == "material":
+        core = f"a2.drawing={outer}.drawing AND LOWER(a2.material)=LOWER(?) AND a2.confidence IN {conf}"
+        args = [val]
+    elif kind == "value":
+        try:
+            num = float(val)
+        except (TypeError, ValueError):
+            return "1=0", []
+        lo, hi = num - tolerance, num + tolerance
+        core = (f"a2.drawing={outer}.drawing AND a2.value BETWEEN ? AND ?"
+                f" AND a2.confidence IN {conf}")
+        args = [lo, hi]
+        if include_unattr:
+            core = (f"a2.drawing={outer}.drawing AND ((a2.value BETWEEN ? AND ?"
+                    f" AND a2.confidence IN {conf})"
+                    " OR (a2.material IS NULL AND a2.value BETWEEN ? AND ?"
+                    " AND a2.chain='unattributed'))")
+            args = [lo, hi, lo, hi]
+    else:
+        raise ValueError(kind)
+    if current_only:
+        core += f" AND a2.commit_sha={_attr_latest(outer)}"
+    return f"EXISTS (SELECT 1 FROM attribution a2 WHERE {core})", args
+
+def search_stacked(db: Path, chips: list[tuple[str, str]], ever: bool = False,
+                   tolerance: float = 0.0, include_low: bool = False,
+                   include_unattr: bool = False) -> dict:
     """Stacked single-bar search. Every chip is a must-contain condition on the
     DRAWING (AND). Returns {'drawings': [...], 'rows': [...]} where rows are the
     WHOLE current element sets of qualifying drawings; matched rows carry
@@ -147,7 +262,14 @@ def search_stacked(db: Path, chips: list[tuple[str, str]], ever: bool = False) -
     have_part = "part" in _cols(con)
     args: list = []
 
+
+    # qualifying drawings: every chip satisfied (current, or any history if ever).
+    # material/value chips match BOUND attributions (7.8); the rest match rows.
     def exists_for(kind: str, val: str, current_only: bool) -> str:
+        if kind in ("material", "value"):
+            ex, a = _attr_exists(kind, val, current_only, tolerance,
+                                 include_low, include_unattr)
+            return ex, a
         if kind == "part" and not have_part:
             # pre-part index: fall back to annotation substring
             cond = "LOWER(COALESCE(e2.text_raw,'')) LIKE '%' || LOWER(?) || '%'"
@@ -162,7 +284,6 @@ def search_stacked(db: Path, chips: list[tuple[str, str]], ever: bool = False) -
                   " AND e2.status!='deleted'")
         return q + ")", a
 
-    # qualifying drawings: every chip satisfied (current, or any history if ever)
     q = "SELECT DISTINCT e.drawing FROM element_state e WHERE 1=1"
     for kind, val in chips:
         ex, a = exists_for(kind, val, current_only=not ever)
@@ -180,9 +301,25 @@ def search_stacked(db: Path, chips: list[tuple[str, str]], ever: bool = False) -
             rq_args.extend(drawings)
         rq += " ORDER BY drawing, element_id"
         rows = [dict(r) for r in con.execute(rq, rq_args)]
+        amap = _attribution_map(con, [(r.get("element_id"), r.get("commit_sha")) for r in rows])
         for r in rows:
             r.setdefault("project", _project_of(r))
-            r["matched"] = any(_row_matches(r, k, v) for k, v in chips) if chips else True
+            attribs = amap.get((r.get("element_id"), r.get("commit_sha")), [])
+            if chips:
+                r["matched"] = any(
+                    _chip_hit(r, attribs, k, v, tolerance, include_low, include_unattr)
+                    for (k, v) in chips)
+            else:
+                r["matched"] = True
+            best = _best_attribution(attribs, chips, tolerance, include_low, include_unattr)
+            if best is not None:
+                r["confidence"] = best.get("confidence")
+                r["attribution_chain"] = best.get("chain")
+                r["exact_value"] = best.get("value")
+                if best.get("qualifier") is not None:
+                    r["qualifier"] = best.get("qualifier")
+                if best.get("qualifier") is not None:
+                    r["qualifier"] = best.get("qualifier")
     by_drawing: dict[str, list[dict]] = {}
     for r in rows:
         by_drawing.setdefault(r["drawing"], []).append(r)
@@ -196,9 +333,17 @@ def search_stacked(db: Path, chips: list[tuple[str, str]], ever: bool = False) -
            " ORDER BY drawing, element_id")
     # per drawing, note whether any deleted row matches (for del-only inclusion)
     seen_match: dict[str, bool] = {}
-    for r in (dict(x) for x in con.execute(dzq)):
+    dz = [dict(x) for x in con.execute(dzq)]
+    dzmap = _attribution_map(con, [(r.get("element_id"), r.get("commit_sha")) for r in dz])
+    for r in dz:
         r.setdefault("project", _project_of(r))
-        r["matched"] = any(_row_matches(r, k, v) for k, v in chips) if chips else True
+        attribs = dzmap.get((r.get("element_id"), r.get("commit_sha")), [])
+        if chips:
+            r["matched"] = any(
+                _chip_hit(r, attribs, k, v, tolerance, include_low, include_unattr)
+                for (k, v) in chips)
+        else:
+            r["matched"] = True
         if r["matched"]:
             seen_match[r["drawing"]] = True
         del_by_drawing.setdefault(r["drawing"], []).append(r)
@@ -229,16 +374,44 @@ def search_stacked(db: Path, chips: list[tuple[str, str]], ever: bool = False) -
     return {"drawings": info, "rows": rows, "deleted": deleted}
 
 
-def find(db: Path, material=None, part=None, value=None, text=None, drawing=None, project=None, ever: bool = False) -> list[dict]:
+def find(db: Path, material=None, part=None, value=None, text=None, drawing=None, project=None,
+         ever: bool = False, tolerance: float = 0.0,
+         include_unattr: bool = False, include_low_confidence: bool = False) -> list[dict]:
+    """Element search. Material/value criteria match only BOUND attributions
+    (7.8): the value must be bound to the material at medium+ confidence —
+    loose numbers never match. Tolerance widens numeric matching (±mm).
+    """
     con = _con(db)
     sel = _select(con)
     have_project = "project" in _cols(con)
     have_part = "part" in _cols(con)
     q = f"SELECT {sel} FROM element_state WHERE 1=1"
     args: list = []
-    if material:
-        q += " AND LOWER(material)=LOWER(?)"
-        args.append(material)
+    if material or value is not None:
+        conf = _conf_list(include_low_confidence)
+        conds, cargs = [], []
+        if material:
+            conds.append(f"LOWER(a1.material)=LOWER(?)")
+            cargs.append(material)
+        if value is not None:
+            try:
+                num = float(value)
+            except (TypeError, ValueError):
+                con.close()
+                return []
+            tol = tolerance or 0.0
+            if material or not include_unattr:
+                conds.append(f"a1.value BETWEEN ? AND ? AND a1.confidence IN {conf}")
+                cargs += [num - tol, num + tol]
+            else:
+                # value-only + include-unattributed: bound values or loose numbers
+                conds.append(f"((a1.value BETWEEN ? AND ? AND a1.confidence IN {conf})"
+                             " OR (a1.material IS NULL AND a1.value BETWEEN ? AND ?"
+                             " AND a1.chain='unattributed'))")
+                cargs += [num - tol, num + tol, num - tol, num + tol]
+        q += (" AND EXISTS (SELECT 1 FROM attribution a1 WHERE a1.element_id=element_state.element_id"
+              f" AND a1.commit_sha=element_state.commit_sha AND {' AND '.join(conds)})")
+        args.extend(cargs)
     if part:
         if have_part:
             q += " AND LOWER(part)=LOWER(?)"
@@ -246,9 +419,6 @@ def find(db: Path, material=None, part=None, value=None, text=None, drawing=None
         else:
             q += " AND LOWER(COALESCE(text_raw,'')) LIKE '%' || LOWER(?) || '%'"
             args.append(part)
-    if value is not None:
-        q += " AND value=?"
-        args.append(value)
     if text:
         q += " AND LOWER(COALESCE(text_raw,'')) LIKE '%' || LOWER(?) || '%'"
         args.append(text)
@@ -266,6 +436,18 @@ def find(db: Path, material=None, part=None, value=None, text=None, drawing=None
         q += f" AND {_LATEST_PER_DRAWING} AND status!='deleted'"
     q += " ORDER BY drawing, commit_date DESC, element_id"
     rows = [dict(r) for r in con.execute(q, args)]
+    if material or value is not None:
+        amap = _attribution_map(con, [(r.get("element_id"), r.get("commit_sha")) for r in rows])
+        for r in rows:
+            best = _best_attribution(amap.get((r.get("element_id"), r.get("commit_sha")), []),
+                                     [x for x in (("material", material), ("value", value)) if x[1] not in (None, "")],
+                                     tolerance or 0.0, include_low_confidence, include_unattr)
+            if best is not None:
+                r["confidence"] = best.get("confidence")
+                r["attribution_chain"] = best.get("chain")
+                r["exact_value"] = best.get("value")
+                if best.get("qualifier") is not None:
+                    r["qualifier"] = best.get("qualifier")
     con.close()
     for r in rows:
         r.setdefault("project", _project_of(r))

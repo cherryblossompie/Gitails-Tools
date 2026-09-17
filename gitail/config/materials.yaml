@@ -19,7 +19,11 @@ materials:
   plasterboard:
     keywords: [plasterboard, plaster, gwb, gyprock]
   aluminium:
-    keywords: [aluminium, aluminum, alu]
+    keywords: [aluminium, aluminum, alum, alu]
+  tile:
+    keywords: [tile, tiles]
+  quirk:
+    keywords: [quirk]
 
 # Hatch pattern name (upper-case as stored in DXF) -> material.
 # Covers common AutoCAD patterns; add firm-specific ones here.
@@ -76,3 +80,10 @@ qualifiers:
   - tinted
   - fire-rated
   - acoustic
+  - nominal
+  - tbc
+  - varies
+  - min
+  - max
+  - typical
+  - indeterminate

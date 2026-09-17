@@ -1,0 +1,25 @@
+# Geometry tolerances for the 7.2 attribution engine — TUNABLE PER FIRM, not constants.
+# Real details have gaps, overshooting lines and hatch boundaries that don't
+# quite close. Tune against actual files when region detection misbehaves.
+
+# Snap a DIMENSION defpoint / leader endpoint to nearby drawn geometry (mm).
+region_snap_tolerance: 0.5
+
+# Close gaps when walking closed loops of lines on the same layer (mm).
+region_close_gap_tolerance: 1.0
+
+# Ignore sliver regions below this area (sq mm).
+region_min_area: 1.0
+
+# Leader line must start this near a TEXT/MTEXT insertion to count as its
+# leader (mm). Without this, any line captures any callout by proximity.
+leader_pair_tolerance: 25.0
+
+# Perpendicularity tolerance when measuring region thickness (degrees).
+thickness_angle_tolerance: 5.0
+
+# Leader value vs measured geometry disagreement flag threshold (mm).
+conflict_tolerance: 1.0
+
+# Thickness query default tolerance (mm) when --tolerance is not given.
+query_default_tolerance: 0.0

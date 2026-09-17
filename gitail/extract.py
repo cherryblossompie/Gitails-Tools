@@ -202,6 +202,11 @@ def _dim_info(e):
                 p1 = e.dxf.defpoint
                 p2 = e.dxf.defpoint2
                 defpoints = [[r1(p1.x), r1(p1.y)], [r1(p2.x), r1(p2.y)]]
+                try:
+                    p3 = e.dxf.defpoint3
+                    defpoints.append([r1(p3.x), r1(p3.y)])
+                except Exception:
+                    pass
             except Exception:
                 defpoints = None
     except Exception:
@@ -298,6 +303,11 @@ def extract_state(dxf_path: str | Path, materials_cfg: dict) -> list[dict]:
     """Read DXF modelspace and return canonical records (no element_id yet)."""
     import ezdxf
     doc = ezdxf.readfile(str(dxf_path))
+    return extract_state_from_doc(doc, materials_cfg)
+
+
+def extract_state_from_doc(doc, materials_cfg: dict) -> list[dict]:
+    """Same as extract_state but from an open document (tests, in-memory edits)."""
     msp = doc.modelspace()
     out: list[dict] = []
     for e in msp:
@@ -365,6 +375,11 @@ def extract_state(dxf_path: str | Path, materials_cfg: dict) -> list[dict]:
         rec["hatch_area"] = hatch_area
         rec["dim_defpoints"] = dim_defpoints
         rec["dim_style"] = dim_style
+        if type_ == "LWPOLYLINE":
+            try:
+                rec["closed"] = bool(_poly_closed(e))
+            except Exception:
+                rec["closed"] = False
         if raw_type != type_:
             rec["dxf_type"] = raw_type  # e.g. POLYLINE normalized to LWPOLYLINE
         ix, iy = _insertion(e)

@@ -42,16 +42,30 @@ def load_config_dir(config_dir: str | Path) -> tuple[dict, str]:
 
 
 def _find_material(lower: str, materials: dict) -> str | None:
-    """Longest-keyword match so 'plywood' beats 'ply'."""
+    """Longest-keyword match so 'plywood' beats 'ply'.
+
+    Word boundaries throughout: without them 'SUBSTRATE' matches steel via
+    'ub', and no downstream attribution can recover from that.
+    """
     best = None
     best_len = 0
     for mat, spec in (materials or {}).items():
         for kw in (spec or {}).get("keywords", []) or []:
             kw_l = str(kw).lower()
-            if kw_l and kw_l in lower and len(kw_l) > best_len:
+            if not kw_l:
+                continue
+            if re.search(r"\b" + re.escape(kw_l) + r"\b", lower) and len(kw_l) > best_len:
                 best = mat
                 best_len = len(kw_l)
     return best
+
+
+def infer_material_from_layer(layer: str | None, cfg: dict) -> str | None:
+    """Layer-name fallback for Chain A step 5: A-DETL-PLASTER -> plasterboard."""
+    if not layer:
+        return None
+    return _find_material(str(layer).lower().replace("-", " ").replace("_", " "),
+                          cfg.get("materials", {}) or {})
 
 
 def _find_qualifier(lower: str, cfg: dict, materials: dict) -> str | None:
@@ -60,9 +74,19 @@ def _find_qualifier(lower: str, cfg: dict, materials: dict) -> str | None:
         for q in (spec or {}).get("qualifiers", []) or []:
             if q not in quals:
                 quals.append(q)
+    # dotted drawing abbreviations: "NOM." -> nominal, "MIN." -> min, ...
+    dotted = {"nom": "nominal", "tbc": "tbc", "typ": "typical",
+              "min": "min", "max": "max", "var": "varies"}
+    for short, full in dotted.items():
+        if re.search(r"\b" + re.escape(short) + r"\.", lower):
+            return full
     for q in quals:
         if str(q).lower() in lower:
             return str(q).lower()
+    # free-standing VARIES / TBC without dots
+    for word in ("varies", "tbc", "nominal", "typical"):
+        if re.search(r"\b" + word + r"\b", lower):
+            return word
     return None
 
 
@@ -143,6 +167,11 @@ def parse_text(text_raw: str | None, cfg: dict) -> dict | None:
             if q:
                 out["qualifier"] = q
             return out
+        # Deliberately unspecified dimension ("WALLTYPE VARIES") is information:
+        # keep the qualifier so it is searchable as indeterminate.
+        q = _find_qualifier(lower, cfg, materials)
+        if q in ("varies", "tbc"):
+            return {"qualifier": q}
         return None
 
     # Thickness: prefer number with mm/THK unit, else first bare number.
