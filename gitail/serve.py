@@ -85,6 +85,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(_history(ctx, query))
         if path == "/api/drawing_history":
             return self._json(_drawing_history(ctx, query))
+        if path == "/api/drawing":
+            return self._json(_drawing(ctx, query))
         if path == "/api/blob":
             return self._blob(ctx, query)
         if path.startswith("/pdf/"):
@@ -393,6 +395,34 @@ def _drawing_history(ctx, query) -> list:
         return []
 
 
+def _drawing(ctx, query) -> dict:
+    """Full rows for one drawing (no caps) for lazy group expansion."""
+    from .query import drawing_rows, parse_chip
+    db = Path(ctx["db"])
+    drawing = ((query.get("drawing") or [""])[0])
+    if not drawing or not db.exists():
+        return {"rows": [], "deleted": []}
+    get = lambda k: (query.get(k) or [""])[0] or None
+    try:
+        tolerance = float(get("tolerance") or 0.0)
+    except (TypeError, ValueError):
+        tolerance = 0.0
+    include_low = (get("include_low") or "") in ("1", "true", "on")
+    include_unattr = (get("include_unattr") or "") in ("1", "true", "on")
+    try:
+        chips = [parse_chip(c) for c in (query.get("chip") or []) if c.strip()]
+    except ValueError:
+        return {"rows": [], "deleted": [], "error": "bad chip"}
+    try:
+        res = drawing_rows(db, drawing, chips, tolerance, include_low, include_unattr)
+    except Exception:
+        return {"rows": [], "deleted": []}
+    for r in res["rows"] + res["deleted"]:
+        r["pdf_url"] = f"/pdf/{r['drawing']}.pdf"
+        r["dxf_url"] = f"/drawings/{r['drawing']}.dxf"
+    return res
+
+
 def _resolve_store(ctx, drawing: str, raw: list) -> tuple:
     """Identity-resolve raw records vs previous state, write jsonl+idmap."""
     import json as _json
@@ -655,36 +685,53 @@ $('bar').addEventListener('keydown',e=>{
 });
 document.addEventListener('click',e=>{if(!$('pick').contains(e.target))$('sugg').style.display='none';});
 $('clear').onclick=()=>{CHIPS=[];renderChips();search();};
-async function search(){
-  const p=new URLSearchParams({ever:$('ever').checked?'1':'',
+async function params(){
+  return {ever:$('ever').checked?'1':'',
     tolerance:$('tol').value.trim(), include_low:$('incL').checked?'1':'',
-    include_unattr:$('incU').checked?'1':''});
+    include_unattr:$('incU').checked?'1':''};
+}
+function sig(){return JSON.stringify([CHIPS,params()]);}
+let EXPANDED=new Set(), ROWCACHE={};
+async function fetchRows(d){
+  const key=sig()+'|'+d;
+  if(!ROWCACHE[key]){
+    const p=new URLSearchParams(params());
+    CHIPS.forEach(c=>p.append('chip',c.k+':'+c.v));
+    p.append('drawing',d);
+    ROWCACHE[key]=await (await fetch('/api/drawing?'+p)).json();
+  }
+  return ROWCACHE[key];
+}
+async function search(){
+  const p=new URLSearchParams(params());
   CHIPS.forEach(c=>p.append('chip',c.k+':'+c.v));
   const res=await (await fetch('/api/search?'+p)).json();
-  const rows=res.rows||[],drws=res.drawings||[],del=res.deleted||[];
-  const shown=rows.filter(r=>r.matched).length;
-  const delByD={};
-  del.forEach(r=>{(delByD[r.drawing]=delByD[r.drawing]||[]).push(r);});
+  const drws=res.drawings||[];
+  let ndel=0;
+  drws.forEach(d=>{ndel+=(d.deleted||0);});
   $('count').textContent=drws.length+' drawing(s)'
-    +(CHIPS.length?`, ${shown} matching row(s) — must contain ALL ${CHIPS.length} filter(s)`:' — click a drawing to expand')
-    +(del.length?` (+${del.length} deleted)`:'');
-  const byD={};
-  rows.forEach(r=>{(byD[r.drawing]=byD[r.drawing]||[]).push(r);});
+    +(CHIPS.length?` — must contain ALL ${CHIPS.length} filter(s)`:' — click a drawing to expand')
+    +(ndel?` (+${ndel} deleted)`:'');
   let htm='';
   drws.forEach(d=>{
-    const all=(byD[d.drawing]||[]).slice().sort((a,b)=>String(a.element_id).localeCompare(String(b.element_id)));
-    const vis=all.filter(r=>r.matched);
     const open=EXPANDED.has(d.drawing);
+    const det=ROWCACHE[sig()+'|'+d.drawing];
     htm+=`<tr class="dhead" data-d="${esc(d.drawing)}"><td><span class="arrow">${open?'▼':'▶'}</span> ${esc(d.project||'—')}</td>`
       +`<td><a class="dxf" href="/pdf/${esc(d.drawing)}.pdf">📄 ${esc(d.drawing)}</a>${d.via_history?'<span class="badge">via history</span>':''}`
       +` <button class="linkbtn revbtn" data-d="${esc(d.drawing)}">revisions</button></td>`
-      +`<td colspan="8">${vis.length} of ${all.length} shown${(delByD[d.drawing]||[]).length?` (+${delByD[d.drawing].length} deleted)`:''}${(d.images||[]).length?` 🖼️${d.images.length}`:''}</td></tr>`;
+      +`<td colspan="8">${d.matched??d.elements} of ${d.elements} shown${d.deleted?` (+${d.deleted} deleted)`:''}${(d.images||[]).length?` 🖼️${d.images.length}`:''}</td></tr>`;
     htm+=`<tr class="revrow" data-d="${esc(d.drawing)}" style="display:none"><td colspan="10"></td></tr>`;
-    if(open){matGroups(vis).forEach(g=>{htm+=`<tr class="mhead"><td></td><td colspan="9">${esc(g.m)} — ${g.rows.length}</td></tr>`;
-      g.rows.forEach(r=>{htm+=elRow(r,'hit');});});
-    (delByD[d.drawing]||[]).forEach(r=>{htm+=elRow(r,'del','deleted');});}
-    if(open&&(d.images||[]).length){htm+=`<tr><td></td><td colspan="9" class="thumbs">🖼️ reference (view-only): `
-      +d.images.map(u=>`<a href="${esc(u)}"><img src="${esc(u)}" loading="lazy"></a>`).join('')+`</td></tr>`;}
+    if(open){
+      if(!det){htm+=`<tr><td></td><td colspan="9">loading…</td></tr>`;fetchRows(d.drawing).then(()=>search());}
+      else{
+        matGroups(det.rows.filter(r=>r.matched)).forEach(g=>{htm+=`<tr class="mhead"><td></td><td colspan="9">${esc(g.m)} — ${g.rows.length}</td></tr>`;
+          g.rows.forEach(r=>{htm+=elRow(r,'hit');});});
+        (det.deleted||[]).forEach(r=>{htm+=elRow(r,'del','deleted');});
+        const imgs=(det.images||d.images||[]);
+        if(imgs.length){htm+=`<tr><td></td><td colspan="9" class="thumbs">🖼️ reference (view-only): `
+          +imgs.map(u=>`<a href="${esc(u)}"><img src="${esc(u)}" loading="lazy"></a>`).join('')+`</td></tr>`;}
+      }
+    }
   });
   $('body').innerHTML=htm||'<tr><td colspan="10">No drawings contain all stacked filters.</td></tr>';
   const refs=res.ref_images||[];
@@ -715,14 +762,14 @@ async function search(){
       :'no revisions indexed';
   }});
 }
-let EXPANDED=new Set();
 $('expall').onclick=async()=>{
-  const p=new URLSearchParams({ever:$('ever').checked?'1':'',
-    tolerance:$('tol').value.trim(), include_low:$('incL').checked?'1':'',
-    include_unattr:$('incU').checked?'1':''});
+  const p=new URLSearchParams(params());
   CHIPS.forEach(c=>p.append('chip',c.k+':'+c.v));
   const res=await (await fetch('/api/search?'+p)).json();
-  (res.drawings||[]).forEach(d=>EXPANDED.add(d.drawing));
+  const ds=(res.drawings||[]).map(d=>d.drawing);
+  ds.forEach(d=>EXPANDED.add(d));
+  search();
+  await Promise.all(ds.map(d=>fetchRows(d)));
   search();
 };
 $('colall').onclick=()=>{EXPANDED.clear();search();};

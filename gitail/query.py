@@ -359,6 +359,7 @@ def search_stacked(db: Path, chips: list[tuple[str, str]], ever: bool = False,
         info.append({"drawing": d,
                      "project": dr[0].get("project", "") if dr else (d.split("/")[0] if "/" in d else ""),
                      "elements": len(dr),
+                     "matched": sum(1 for x in dr if x.get("matched")),
                      "via_history": bool(ever and chips and not any(x.get("matched") for x in dr))})
         listed.add(d)
     for d in sorted(del_by_drawing):
@@ -368,7 +369,7 @@ def search_stacked(db: Path, chips: list[tuple[str, str]], ever: bool = False,
         if chips and not any(x.get("matched") for x in dd):
             continue
         info.append({"drawing": d, "project": dd[0].get("project", ""),
-                     "elements": 0, "deleted_only": True, "via_history": False})
+                     "elements": 0, "matched": 0, "deleted_only": True, "via_history": False})
     info.sort(key=lambda e: e["drawing"])
     con.close()
     return {"drawings": info, "rows": rows, "deleted": deleted}
@@ -452,6 +453,49 @@ def find(db: Path, material=None, part=None, value=None, text=None, drawing=None
     for r in rows:
         r.setdefault("project", _project_of(r))
     return rows
+
+
+def drawing_rows(db: Path, drawing: str, chips: list[tuple[str, str]] = (),
+                 tolerance: float = 0.0,
+                 include_low: bool = False, include_unattr: bool = False) -> dict:
+    """Full row set for ONE drawing (no caps): live current + latest deletions,
+    with matched flags and display attributions. Backs lazy group expansion.
+    Display is always the current snapshot; `ever` only affects qualification
+    (see search_stacked), flagged per drawing as via_history."""
+    con = _con(db)
+    sel = _select(con)
+    rq = (f"SELECT {sel} FROM element_state WHERE drawing=? AND {_LATEST_PER_DRAWING}"
+          " AND status!='deleted' ORDER BY element_id")
+    rows = [dict(r) for r in con.execute(rq, (drawing,))]
+    amap = _attribution_map(con, [(r.get("element_id"), r.get("commit_sha")) for r in rows])
+    for r in rows:
+        r.setdefault("project", _project_of(r))
+        attribs = amap.get((r.get("element_id"), r.get("commit_sha")), [])
+        r["matched"] = any(_chip_hit(r, attribs, k, v, tolerance, include_low, include_unattr)
+                           for (k, v) in chips) if chips else True
+        best = _best_attribution(attribs, chips, tolerance, include_low, include_unattr)
+        if best is not None:
+            r["confidence"] = best.get("confidence")
+            r["attribution_chain"] = best.get("chain")
+            r["exact_value"] = best.get("value")
+            if best.get("qualifier") is not None:
+                r["qualifier"] = best.get("qualifier")
+    dzq = (f"SELECT {sel} FROM element_state WHERE drawing=? AND status='deleted'"
+           f" AND {_LATEST_PER_DRAWING} ORDER BY element_id")
+    dz = [dict(x) for x in con.execute(dzq, (drawing,))]
+    dzmap = _attribution_map(con, [(r.get("element_id"), r.get("commit_sha")) for r in dz])
+    deleted = []
+    for r in dz:
+        r.setdefault("project", _project_of(r))
+        attribs = dzmap.get((r.get("element_id"), r.get("commit_sha")), [])
+        if chips:
+            r["matched"] = any(_chip_hit(r, attribs, k, v, tolerance, include_low, include_unattr)
+                               for (k, v) in chips)
+        else:
+            r["matched"] = True
+        deleted.append(r)
+    con.close()
+    return {"rows": rows, "deleted": deleted}
 
 
 def history(db: Path, element_id: str) -> list[dict]:

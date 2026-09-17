@@ -36,7 +36,7 @@ def _rows(db: Path, pdf_base: str = GITHUB_PDF_BASE,
     if "part" in have:
         cols.insert(cols.index("material") + 1, "part")
     rows = [dict(r) for r in con.execute(
-        f"SELECT rowid, {','.join(cols)} FROM element_state ORDER BY rowid DESC LIMIT 5000")]
+        f"SELECT rowid, {','.join(cols)} FROM element_state ORDER BY rowid DESC LIMIT 20000")]
     for r in rows:
         if not r.get("project"):
             d = r.get("drawing") or ""
@@ -57,6 +57,15 @@ def _rows(db: Path, pdf_base: str = GITHUB_PDF_BASE,
         r["dxf_rel"] = f"drawings/{r['drawing']}.dxf"
         r["dxf_github"] = f"{dxf_base}/{r['drawing']}.dxf"
         r.pop("rowid", None)
+    # slim payload: the page needs display + filter fields only (no geometry,
+    # no author/message — the table never shows them)
+    slim_keys = {"element_id", "commit_sha", "commit_date",
+                 "drawing", "project", "type", "layer", "material", "part", "value", "unit",
+                 "text_raw", "status", "is_current", "is_deleted_latest", "bound",
+                 "pdf_rel", "pdf_github", "dxf_rel", "dxf_github", "images"}
+    for r in rows:
+        for k in [k for k in list(r.keys()) if k not in slim_keys]:
+            r.pop(k, None)
     projects = sorted({r["project"] for r in rows if r["project"]})
     materials = sorted({str(r["material"]) for r in rows if r["material"]})
     try:

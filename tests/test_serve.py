@@ -107,6 +107,13 @@ def test_serve_search_and_upload(tmp_path):
             stacked = json.loads(r.read())
         assert [d["drawing"] for d in stacked["drawings"]] == ["StageC/D-9"]
         assert all(x["matched"] for x in stacked["rows"])
+        assert stacked["drawings"][0]["matched"] == len(stacked["rows"])
+        # lazy per-drawing endpoint: full rows, no caps
+        with urllib.request.urlopen(base + "/api/drawing?" + urllib.parse.urlencode(
+                [("drawing", "StageC/D-9"), ("chip", "material:glass")])) as r:
+            det = json.loads(r.read())
+        assert len(det["rows"]) == len(stacked["rows"])
+        assert all(x["matched"] for x in det["rows"])
         code, _ = _get(base, "/pdf/StageC/D-9.pdf")
         assert code == 200
         # archived blobs: old PDF/DXF per revision, straight from git
