@@ -33,6 +33,8 @@ def _rows(db: Path, pdf_base: str = GITHUB_PDF_BASE,
             "text_raw", "x", "y", "status", "match_tier", "match_confidence"]
     if "project" in have:
         cols.insert(6, "project")
+    if "part" in have:
+        cols.insert(cols.index("material") + 1, "part")
     rows = [dict(r) for r in con.execute(
         f"SELECT rowid, {','.join(cols)} FROM element_state ORDER BY rowid DESC LIMIT 5000")]
     for r in rows:
@@ -54,11 +56,16 @@ def _rows(db: Path, pdf_base: str = GITHUB_PDF_BASE,
         r.pop("rowid", None)
     projects = sorted({r["project"] for r in rows if r["project"]})
     materials = sorted({str(r["material"]) for r in rows if r["material"]})
+    try:
+        parts = sorted(r[0] for r in con.execute(
+            "SELECT DISTINCT part FROM element_state WHERE part IS NOT NULL AND part!=''"))
+    except Exception:
+        parts = []
     drawings = sorted({str(r["drawing"]) for r in rows})
     texts = sorted({str(r["text_raw"]) for r in rows if r["text_raw"]})[:300]
     values = sorted({r["value"] for r in rows if r["value"] is not None})
     con.close()
-    return rows, projects, materials, drawings, texts, values
+    return rows, projects, materials, parts, drawings, texts, values
 
 
 def _unindexed_pdfs(pdf_dir: Path, drawings_known: set[str]) -> list[dict]:
@@ -107,7 +114,7 @@ def write_html(db: Path, out: Path, pdf_dir: Path = Path("pdf"),
                images_dir: Path = Path("images"),
                github_base: str | None = None) -> Path:
     pdf_base = github_base or GITHUB_PDF_BASE
-    rows, projects, materials, drawings, texts, values = _rows(db, pdf_base=pdf_base)
+    rows, projects, materials, parts, drawings, texts, values = _rows(db, pdf_base=pdf_base)
     unindexed = _unindexed_pdfs(Path(pdf_dir), {r["drawing"] for r in rows})
     imgdir = Path(images_dir)
     by_drawing_imgs: dict[str, list[str]] = {}
@@ -126,7 +133,7 @@ def write_html(db: Path, out: Path, pdf_dir: Path = Path("pdf"),
                    for did, us in sorted(by_drawing_imgs.items()) if did not in known for u in us]
     payload = json.dumps(rows, ensure_ascii=False).replace("</", "<\\/")
     orphanjs = json.dumps(orphan_imgs, ensure_ascii=False).replace("</", "<\\/")
-    meta = {"materials": materials, "projects": projects, "drawings": drawings,
+    meta = {"materials": materials, "parts": parts, "projects": projects, "drawings": drawings,
             "texts": texts, "values": [str(v) for v in values]}
     metajs = json.dumps(meta, ensure_ascii=False).replace("</", "<\\/")
     page = f"""<!doctype html>
@@ -165,6 +172,7 @@ tr.del td{{opacity:.6;text-decoration:line-through}}
 .dhead td:first-child{{white-space:nowrap}}
 .badge{{font-size:11px;background:#ffd;border:1px solid #cc9;border-radius:4px;padding:1px 5px;margin-left:6px}}
 .arrow{{display:inline-block;width:1.2em}}
+.mhead td{{background:#f6f6ea;font-weight:600}}
 .linkbtn{{background:none;border:none;text-decoration:underline;cursor:pointer;font-size:13px;padding:8px 4px}}
 </style></head><body>
 <header><h2 style="margin:0">gitail — search element history</h2>
@@ -180,7 +188,7 @@ tr.del td{{opacity:.6;text-decoration:line-through}}
 </div>
 <div class="count" id="count"></div>
 <table><thead><tr>
-<th>project</th><th>drawing</th><th>element</th><th>material</th><th>value</th><th>text</th><th>status</th><th>commit</th><th>date</th>
+<th>project</th><th>drawing</th><th>element</th><th>material</th><th>part</th><th>value</th><th>text</th><th>status</th><th>commit</th><th>date</th>
 </tr></thead><tbody id="body"></tbody></table>
 <div id="orphsec"></div>
 UNINDEXED_SECTION
@@ -204,6 +212,7 @@ let CHIPS=[];
 function matchRow(r,k,v){{
   v=v.toLowerCase();
   if(k==='material')return (r.material||'').toLowerCase()===v;
+  if(k==='part')return (r.part||'').toLowerCase()===v;
   if(k==='project')return (r.project||'').toLowerCase()===v;
   if(k==='drawing')return (r.drawing||'').toLowerCase()===v;
   if(k==='value')return String(r.value??'')===v;
@@ -213,6 +222,7 @@ function drawingHas(rows,k,v){{return rows.some(r=>matchRow(r,k,v));}}
 function options(){{
   const o=[];
   META.materials.forEach(v=>o.push({{k:'material',v}}));
+  (META.parts||[]).forEach(v=>o.push({{k:'part',v}}));
   META.projects.forEach(v=>o.push({{k:'project',v}}));
   META.drawings.forEach(v=>o.push({{k:'drawing',v}}));
   (META.values||[]).forEach(v=>o.push({{k:'value',v}}));
@@ -278,21 +288,16 @@ function render(){{
     nshow+=open?vis.length:0; ndel+=open?dz.length:0;
     htm+=`<tr class="dhead" data-d="${{esc(d)}}"><td><span class="arrow">${{open?'▼':'▶'}}</span> ${{esc(first.project||'—')}}</td>`
       +`<td><a class="dxf" href="${{esc(first.pdf_rel||('pdf/'+d+'.pdf'))}}">📄 ${{esc(d)}}</a>${{hist?'<span class="badge">via history</span>':''}}</td>`
-      +`<td colspan="7">${{vis.length}} of ${{all.length}} shown${{dz.length?` (+${{dz.length}} deleted)`:''}}</td></tr>`;
-    if(open)vis.forEach(r=>{{
-      htm+=`<tr class="hit"><td></td><td></td><td><code>${{esc(r.element_id)}}</code></td>`
-        +`<td>${{esc(r.material||'')}}</td><td>${{esc(r.value??'')}}</td>`
-        +`<td>${{esc(r.text_raw||'')}}</td><td>${{esc(r.status||'')}}</td>`
-        +`<td><code>${{esc((r.commit_sha||'').slice(0,7))}}</code></td><td>${{esc(r.commit_date||'')}}</td></tr>`;
+      +`<td colspan="8">${{vis.length}} of ${{all.length}} shown${{dz.length?` (+${{dz.length}} deleted)`:''}}</td></tr>`;
+    if(open)matGroups(vis).forEach(g=>{{
+      htm+=`<tr class="mhead"><td></td><td colspan="9">${{esc(g.m)}} — ${{g.rows.length}}</td></tr>`;
+      g.rows.forEach(r=>{{htm+=elRow(r,'hit');}});
     }});
     if(open)dz.forEach(r=>{{
-      htm+=`<tr class="del"><td></td><td></td><td><code>${{esc(r.element_id)}}</code></td>`
-        +`<td>${{esc(r.material||'')}}</td><td>${{esc(r.value??'')}}</td>`
-        +`<td>${{esc(r.text_raw||'')}}</td><td>deleted</td>`
-        +`<td><code>${{esc((r.commit_sha||'').slice(0,7))}}</code></td><td>${{esc(r.commit_date||'')}}</td></tr>`;
+      htm+=elRow(r,'del','deleted');
     }});
     const imgs=open?((first.images||[])):[];
-    if(imgs.length){{htm+=`<tr><td></td><td colspan="8" class="thumbs">🖼️ reference (view-only): `
+    if(imgs.length){{htm+=`<tr><td></td><td colspan="9" class="thumbs">🖼️ reference (view-only): `
       +imgs.map(u=>`<a href="${{esc(u)}}"><img src="${{esc(u)}}" loading="lazy"></a>`).join('')+`</td></tr>`;}}
   }});
   let orph='';
@@ -302,7 +307,7 @@ function render(){{
   $('count').textContent=qual.length+' drawing(s)'
     +(CHIPS.length?' — must contain ALL '+CHIPS.length+' filter(s). Click a drawing to expand matching rows.':' — click a drawing to expand')
     +(ndel?` (+${{ndel}} deleted)`:'');
-  $('body').innerHTML=htm||'<tr><td colspan="9">No drawings contain all stacked filters.</td></tr>';
+  $('body').innerHTML=htm||'<tr><td colspan="10">No drawings contain all stacked filters.</td></tr>';
   $('orphsec').innerHTML=orph;
   $('body').querySelectorAll('tr.dhead').forEach(tr=>tr.onclick=e=>{{
     if(e.target.tagName==='A')return;
@@ -318,6 +323,17 @@ $('expall').onclick=()=>{{
 }};
 $('colall').onclick=()=>{{EXPANDED.clear();render();}};
 function esc(s){{return String(s).replace(/[&<>"]/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}}[c]));}}
+function matGroups(rows){{
+  const g={{}};
+  rows.forEach(r=>{{const m=r.material||'—';(g[m]=g[m]||[]).push(r);}});
+  return Object.keys(g).sort((a,b)=>a==='—'?1:b==='—'?-1:a.localeCompare(b)).map(m=>({{m,rows:g[m]}}));
+}}
+function elRow(r,cls,status){{
+  return `<tr class="${{cls}}"><td></td><td></td><td><code>${{esc(r.element_id)}}</code></td>`
+    +`<td>${{esc(r.material||'')}}</td><td>${{esc(r.part||'')}}</td><td>${{esc(r.value??'')}}</td>`
+    +`<td>${{esc(r.text_raw||'')}}</td><td>${{status||esc(r.status||'')}}</td>`
+    +`<td><code>${{esc((r.commit_sha||'').slice(0,7))}}</code></td><td>${{esc(r.commit_date||'')}}</td></tr>`;
+}}
 $('ever').addEventListener('change',render);renderChips();render();
 // add-drawing helper
 const addProj=document.getElementById('add-proj'),addNew=document.getElementById('add-newproj'),

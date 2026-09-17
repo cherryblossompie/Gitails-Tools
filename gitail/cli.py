@@ -8,7 +8,7 @@ import click
 
 from .extract import dxf_version, extract_state, version_supported
 from .identity import DEFAULT_TOLERANCE_MM, resolve
-from .semantics import load_materials
+from .semantics import load_config_dir
 
 
 def _load_jsonl(path: Path) -> list[dict]:
@@ -74,7 +74,9 @@ def extract(dxf_path, state_dir, config_dir, drawings_dir, tolerance, check):
                 pass
             break
 
-    materials_cfg = load_materials(config_dir / "materials.yaml") if (config_dir / "materials.yaml").exists() else {}
+    materials_cfg, cfg_source = load_config_dir(config_dir)
+    if not materials_cfg:
+        click.echo("WARNING: no materials config found — annotations will not parse", err=True)
     ver = dxf_version(dxf_path)
     if ver and not version_supported(ver):
         click.echo(f"WARNING: {dxf_path.name} is DXF {ver} (< R2018 AC1032) — "
@@ -136,7 +138,7 @@ def _short(v):
     return v[:7] if len(v) == 40 and all(ch in "0123456789abcdef" for ch in v.lower()) else v
 
 
-def _table(rows: list[dict], cols=("project", "drawing", "element_id", "material", "value", "text_raw", "status", "commit_sha", "author")):
+def _table(rows: list[dict], cols=("project", "drawing", "element_id", "material", "part", "value", "text_raw", "status", "commit_sha", "author")):
     disp = [{**r, "commit_sha": _short(r.get("commit_sha"))} for r in rows]
     widths = {c: max([len(c)] + [len(str(r.get(c) or "")) for r in disp]) for c in cols}
     click.echo("  ".join(c.ljust(widths[c]) for c in cols))
@@ -146,6 +148,7 @@ def _table(rows: list[dict], cols=("project", "drawing", "element_id", "material
 
 @cli.command("find")
 @click.option("--material", multiple=True, help="Repeatable; multiple values stack (drawings mode)")
+@click.option("--part", multiple=True, help="Component noun, e.g. lining, door (repeatable)")
 @click.option("--value", multiple=True, type=float)
 @click.option("--text", "text_q", multiple=True)
 @click.option("--drawing", multiple=True)
@@ -155,11 +158,11 @@ def _table(rows: list[dict], cols=("project", "drawing", "element_id", "material
               help="elements: rows matching all filters. drawings: drawings containing each filter (stacked).")
 @click.option("--json", "as_json", is_flag=True)
 @click.option("--db", default="index.sqlite")
-def find_cmd(material, value, text_q, drawing, project, match, ever, as_json, db):
+def find_cmd(material, part, value, text_q, drawing, project, match, ever, as_json, db):
     """Search elements. Repeat a flag to stack it: drawings containing EACH value win."""
     from .query import find, search_stacked
     stacked = [(k, str(v)) for k, vals in
-               (("material", material), ("value", value), ("text", text_q),
+               (("material", material), ("part", part), ("value", value), ("text", text_q),
                 ("drawing", drawing), ("project", project)) for v in vals]
     if match == "elements" and len(stacked) > 1:
         match = "drawings"  # one element can't be two materials; user means stacked
@@ -178,6 +181,7 @@ def find_cmd(material, value, text_q, drawing, project, match, ever, as_json, db
         return
     rows = find(Path(db),
                 material=material[0] if material else None,
+                part=part[0] if part else None,
                 value=value[0] if value else None,
                 text=text_q[0] if text_q else None,
                 drawing=drawing[0] if drawing else None,

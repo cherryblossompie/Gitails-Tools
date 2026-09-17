@@ -92,8 +92,13 @@ def _parsed_equal(a, b) -> bool:
         return True
     if a is None or b is None:
         return False
-    keys = {"material", "value", "unit", "qualifier", "profile", "dims", "r_value"}
+    keys = {"material", "value", "unit", "qualifier", "profile", "dims", "r_value", "part"}
     for k in keys:
+        # part is config-enrichment: appearing/vanishing with the text
+        # unchanged (e.g. first parse after a config upgrade) is backfill,
+        # not a drawing edit. Genuine part swaps still count (both non-None).
+        if k == "part" and (a.get(k) is None or b.get(k) is None):
+            continue
         if a.get(k) != b.get(k):
             return False
     return True

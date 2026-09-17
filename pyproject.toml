@@ -27,5 +27,8 @@ build-backend = "setuptools.build_meta"
 where = ["."]
 include = ["gitail*"]
 
+[tool.setuptools.package-data]
+gitail = ["config/*.yaml"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

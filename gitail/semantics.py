@@ -20,6 +20,27 @@ def load_materials(config_path: str | Path) -> dict:
     return data or {}
 
 
+def load_config_dir(config_dir: str | Path) -> tuple[dict, str]:
+    """Materials config with bundled fallback.
+
+    Returns (cfg, source). Firms override via --config-dir; otherwise the
+    configs shipped inside the package apply — so serve/CLI parse identically
+    no matter which directory they start from. Without this, a server started
+    in the drawings repo (which has no config/) silently parses nothing.
+    """
+    custom = Path(config_dir) / "materials.yaml"
+    if custom.exists():
+        return load_materials(custom), str(custom)
+    try:
+        from importlib import resources
+        bundled = resources.files("gitail") / "config" / "materials.yaml"
+        if bundled.is_file():
+            return load_materials(bundled), "bundled defaults"
+    except Exception:
+        pass
+    return {}, "empty (no config found)"
+
+
 def _find_material(lower: str, materials: dict) -> str | None:
     """Longest-keyword match so 'plywood' beats 'ply'."""
     best = None
@@ -55,6 +76,20 @@ def _find_profile(raw: str, materials: dict) -> str | None:
     return m.group(1).upper() if m else None
 
 
+def _find_part(raw: str, cfg: dict) -> str | None:
+    """Component noun: door, lining, decking... Longest match wins so
+    'architrave' beats 'rave'-style accidents; word boundaries + optional
+    plural keep 'WALLS:' -> wall. Returns the singular config form."""
+    parts = [str(p) for p in (cfg.get("parts", []) or []) if str(p).strip()]
+    best = None
+    best_len = 0
+    for part in parts:
+        m = re.search(r"\b" + re.escape(part) + r"s?\b", raw, re.IGNORECASE)
+        if m and len(part) > best_len:
+            best, best_len = part.lower(), len(part)
+    return best
+
+
 def parse_text(text_raw: str | None, cfg: dict) -> dict | None:
     """Parse an annotation string into structured fields.
 
@@ -80,9 +115,13 @@ def parse_text(text_raw: str | None, cfg: dict) -> dict | None:
         q = _find_qualifier(lower, cfg, materials)
         if q:
             out["qualifier"] = q
+        part = _find_part(raw, cfg)
+        if part:
+            out["part"] = part
         return out
 
     material = _find_material(lower, materials)
+    part = _find_part(raw, cfg)
 
     # R-value e.g. "R2.5 BATT INSUL"
     r_match = re.search(r"\bR\s*(\d+(?:\.\d+)?)\b", raw, re.IGNORECASE)
@@ -91,9 +130,19 @@ def parse_text(text_raw: str | None, cfg: dict) -> dict | None:
         q = _find_qualifier(lower, cfg, materials)
         if q:
             out["qualifier"] = q
+        if part:
+            out["part"] = part
         return out
 
     if material is None:
+        # No material, but a recognizable component ("ENTRY MAT") — keep the
+        # part so the element stays categorized instead of unparseable.
+        if part:
+            out = {"part": part}
+            q = _find_qualifier(lower, cfg, materials)
+            if q:
+                out["qualifier"] = q
+            return out
         return None
 
     # Thickness: prefer number with mm/THK unit, else first bare number.
@@ -125,6 +174,8 @@ def parse_text(text_raw: str | None, cfg: dict) -> dict | None:
     q = _find_qualifier(lower, cfg, materials)
     if q:
         out["qualifier"] = q
+    if part:
+        out["part"] = part
     return out
 
 

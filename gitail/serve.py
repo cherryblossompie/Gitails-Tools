@@ -284,12 +284,13 @@ def _meta(ctx) -> dict:
     db = Path(ctx["db"])
     meta = {"repo": str(Path(ctx["repo"]).resolve()),
             "git": bool((Path(ctx["repo"]) / ".git").exists()),
-            "projects": [], "materials": [], "drawings": [], "texts": [], "values": []}
+            "projects": [], "materials": [], "parts": [], "drawings": [], "texts": [], "values": []}
     if not db.exists():
         return meta
     try:
         meta.update({"projects": distinct(db, "project"),
                      "materials": distinct(db, "material"),
+                     "parts": distinct(db, "part"),
                      "drawings": distinct(db, "drawing"),
                      "texts": distinct(db, "text_raw"),
                      "values": distinct(db, "value")})
@@ -472,7 +473,7 @@ def _ingest_dxf(ctx, dxf: Path) -> dict:
     """extract + render + auto-commit + reindex for one uploaded DXF."""
     from .extract import dxf_version, extract_state, version_supported
     from .render import render_dxf_to_pdf
-    from .semantics import load_materials
+    from .semantics import load_config_dir
 
     drawings_dir = Path(ctx["drawings_dir"])
     pdf_dir = Path(ctx["pdf_dir"])
@@ -480,9 +481,10 @@ def _ingest_dxf(ctx, dxf: Path) -> dict:
         drawing = dxf.resolve().relative_to(drawings_dir.resolve()).with_suffix("").as_posix()
     except ValueError:
         drawing = dxf.stem
-    cfg_path = Path(ctx["config_dir"]) / "materials.yaml"
-    cfg = load_materials(cfg_path) if cfg_path.exists() else {}
+    cfg, cfg_source = load_config_dir(ctx["config_dir"])
     warnings: list[str] = []
+    if not cfg:
+        warnings.append(f"no materials config ({cfg_source}) — annotations will not parse")
     ver = dxf_version(dxf)
     if ver and not version_supported(ver):
         warnings.append(f"DXF {ver} < R2018 \u2014 re-export as ASCII R2018+ for reliable history")
@@ -503,10 +505,9 @@ def _ingest_dxf(ctx, dxf: Path) -> dict:
 def _ingest_pdf(ctx, pdf_path: Path, drawing: str) -> dict | None:
     """PDF text layer + auto-commit + reindex. None => no text layer (view-only)."""
     from .extract import extract_pdf_state
-    from .semantics import load_materials
+    from .semantics import load_config_dir
 
-    cfg_path = Path(ctx["config_dir"]) / "materials.yaml"
-    cfg = load_materials(cfg_path) if cfg_path.exists() else {}
+    cfg, _cfg_source = load_config_dir(ctx["config_dir"])
     raw = extract_pdf_state(pdf_path, cfg)
     if not raw:
         return None
@@ -558,6 +559,7 @@ tr.del td{opacity:.6;text-decoration:line-through}
 .dhead td:first-child{white-space:nowrap}
 .badge{font-size:11px;background:#ffd;border:1px solid #cc9;border-radius:4px;padding:1px 5px;margin-left:6px}
 .arrow{display:inline-block;width:1.2em}
+.mhead td{background:#f6f6ea;font-weight:600}
 .linkbtn{background:none;border:none;color:#111;text-decoration:underline;cursor:pointer;font-size:13px;padding:8px 4px}
 .thumbs img{height:64px;border:1px solid #ccc;border-radius:4px;margin:2px;vertical-align:middle;background:#fff}
 </style></head><body>
@@ -584,22 +586,23 @@ tr.del td{opacity:.6;text-decoration:line-through}
 </div>
 <div class="count" id="count"></div>
 <table><thead><tr>
-<th>project</th><th>drawing (PDF)</th><th>element</th><th>material</th><th>value</th><th>text</th><th>status</th><th>commit</th><th>date</th>
+<th>project</th><th>drawing (PDF)</th><th>element</th><th>material</th><th>part</th><th>value</th><th>text</th><th>status</th><th>commit</th><th>date</th>
 </tr></thead><tbody id="body"></tbody></table>
 <div id="refsec"></div>
 </main>
 <script>
 const $=id=>document.getElementById(id);
-let META={materials:[],projects:[],drawings:[],texts:[],values:[]},CHIPS=[];
+let META={materials:[],parts:[],projects:[],drawings:[],texts:[],values:[]},CHIPS=[];
 async function meta(){
   const m=await (await fetch('/api/meta')).json();
-  META={materials:m.materials||[],projects:m.projects||[],drawings:m.drawings||[],texts:(m.texts||[]).slice(0,300),values:(m.values||[]).map(String)};
+  META={materials:m.materials||[],parts:m.parts||[],projects:m.projects||[],drawings:m.drawings||[],texts:(m.texts||[]).slice(0,300),values:(m.values||[]).map(String)};
   $('uproj').innerHTML='<option value="">(no project — drawings/ root)</option>'+(m.projects||[]).map(p=>`<option>${esc(p)}</option>`).join('');
   $('repo').textContent='repo: '+(m.repo||'?')+(m.git?'':'  ⚠️ NOT A GIT REPO — restart serve from the drawings repo root');
 }
 function options(){
   const o=[];
   META.materials.forEach(v=>o.push({k:'material',v}));
+  META.parts.forEach(v=>o.push({k:'part',v}));
   META.projects.forEach(v=>o.push({k:'project',v}));
   META.drawings.forEach(v=>o.push({k:'drawing',v}));
   (META.values||[]).forEach(v=>o.push({k:'value',v}));
@@ -661,20 +664,15 @@ async function search(){
     htm+=`<tr class="dhead" data-d="${esc(d.drawing)}"><td><span class="arrow">${open?'▼':'▶'}</span> ${esc(d.project||'—')}</td>`
       +`<td><a class="dxf" href="/pdf/${esc(d.drawing)}.pdf">📄 ${esc(d.drawing)}</a>${d.via_history?'<span class="badge">via history</span>':''}`
       +` <button class="linkbtn revbtn" data-d="${esc(d.drawing)}">revisions</button></td>`
-      +`<td colspan="7">${vis.length} of ${all.length} shown${(delByD[d.drawing]||[]).length?` (+${delByD[d.drawing].length} deleted)`:''}${(d.images||[]).length?` 🖼️${d.images.length}`:''}</td></tr>`;
-    htm+=`<tr class="revrow" data-d="${esc(d.drawing)}" style="display:none"><td colspan="9"></td></tr>`;
-    if(open){vis.forEach(r=>{htm+=`<tr class="hit"><td></td>`
-      +`<td></td><td><code>${esc(r.element_id)}</code></td><td>${esc(r.material||'')}</td><td>${esc(r.value??'')}</td>`
-      +`<td>${esc(r.text_raw||'')}</td><td>${esc(r.status||'')}</td>`
-      +`<td><code>${esc((r.commit_sha||'').slice(0,7))}</code></td><td>${esc(r.commit_date||'')}</td></tr>`;});
-    (delByD[d.drawing]||[]).forEach(r=>{htm+=`<tr class="del"><td></td>`
-      +`<td></td><td><code>${esc(r.element_id)}</code></td><td>${esc(r.material||'')}</td><td>${esc(r.value??'')}</td>`
-      +`<td>${esc(r.text_raw||'')}</td><td>deleted</td>`
-      +`<td><code>${esc((r.commit_sha||'').slice(0,7))}</code></td><td>${esc(r.commit_date||'')}</td></tr>`;});}
-    if(open&&(d.images||[]).length){htm+=`<tr><td></td><td colspan="8" class="thumbs">🖼️ reference (view-only): `
+      +`<td colspan="8">${vis.length} of ${all.length} shown${(delByD[d.drawing]||[]).length?` (+${delByD[d.drawing].length} deleted)`:''}${(d.images||[]).length?` 🖼️${d.images.length}`:''}</td></tr>`;
+    htm+=`<tr class="revrow" data-d="${esc(d.drawing)}" style="display:none"><td colspan="10"></td></tr>`;
+    if(open){matGroups(vis).forEach(g=>{htm+=`<tr class="mhead"><td></td><td colspan="9">${esc(g.m)} — ${g.rows.length}</td></tr>`;
+      g.rows.forEach(r=>{htm+=elRow(r,'hit');});});
+    (delByD[d.drawing]||[]).forEach(r=>{htm+=elRow(r,'del','deleted');});}
+    if(open&&(d.images||[]).length){htm+=`<tr><td></td><td colspan="9" class="thumbs">🖼️ reference (view-only): `
       +d.images.map(u=>`<a href="${esc(u)}"><img src="${esc(u)}" loading="lazy"></a>`).join('')+`</td></tr>`;}
   });
-  $('body').innerHTML=htm||'<tr><td colspan="9">No drawings contain all stacked filters.</td></tr>';
+  $('body').innerHTML=htm||'<tr><td colspan="10">No drawings contain all stacked filters.</td></tr>';
   const refs=res.ref_images||[];
   $('refsec').innerHTML=refs.length
     ?`<div class="card"><h3 style="margin-top:0">Reference images with no drawing (${refs.length})</h3>`
@@ -713,6 +711,17 @@ $('expall').onclick=async()=>{
 };
 $('colall').onclick=()=>{EXPANDED.clear();search();};
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function matGroups(rows){
+  const g={};
+  rows.forEach(r=>{const m=r.material||'—';(g[m]=g[m]||[]).push(r);});
+  return Object.keys(g).sort((a,b)=>a==='—'?1:b==='—'?-1:a.localeCompare(b)).map(m=>({m,rows:g[m]}));
+}
+function elRow(r,cls,status){
+  return `<tr class="${cls}"><td></td>`
+    +`<td></td><td><code>${esc(r.element_id)}</code></td><td>${esc(r.material||'')}</td><td>${esc(r.part||'')}</td><td>${esc(r.value??'')}</td>`
+    +`<td>${esc(r.text_raw||'')}</td><td>${status||esc(r.status||'')}</td>`
+    +`<td><code>${esc((r.commit_sha||'').slice(0,7))}</code></td><td>${esc(r.commit_date||'')}</td></tr>`;
+}
 $('ever').addEventListener('change',search);
 $('ubtn').addEventListener('click',async()=>{
   const f=$('ufile').files[0];if(!f){$('umsg').textContent='Pick a file first.';return;}

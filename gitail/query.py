@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 
 COLS = ["element_id", "commit_sha", "commit_date", "author", "commit_message",
-        "drawing", "project", "type", "layer", "material", "value", "unit",
+        "drawing", "project", "type", "layer", "material", "part", "value", "unit",
         "text_raw", "x", "y", "status", "match_tier", "match_confidence"]
 
 
@@ -55,15 +55,19 @@ _LATEST_PER_DRAWING = (
 
 def distinct(db: Path, col: str, limit: int = 500) -> list[str]:
     """Distinct values for autocomplete datalists."""
-    if col not in ("material", "drawing", "project", "text_raw", "value"):
+    if col not in ("material", "part", "drawing", "project", "text_raw", "value"):
         raise ValueError(col)
     con = _con(db)
-    if col == "project" and "project" not in _cols(con):
-        vals = sorted({(r["drawing"] or "").split("/")[0] for r in
-                       con.execute("SELECT DISTINCT drawing FROM element_state")
-                       if "/" in (r["drawing"] or "")})
+    if col in ("project", "part") and col not in _cols(con):
         con.close()
-        return vals
+        if col == "project":
+            con = _con(db)
+            vals = sorted({(r["drawing"] or "").split("/")[0] for r in
+                           con.execute("SELECT DISTINCT drawing FROM element_state")
+                           if "/" in (r["drawing"] or "")})
+            con.close()
+            return vals
+        return []
     if col == "text_raw":
         rows = con.execute("SELECT DISTINCT text_raw FROM element_state WHERE text_raw IS NOT NULL LIMIT ?", (limit,)).fetchall()
     elif col == "value":
@@ -75,13 +79,15 @@ def distinct(db: Path, col: str, limit: int = 500) -> list[str]:
     return out
 
 
-CHIP_KINDS = ("material", "project", "drawing", "value", "text")
+CHIP_KINDS = ("material", "part", "project", "drawing", "value", "text")
 
 
 def _chip_condition(kind: str, alias: str, have_project: bool) -> str:
     """SQL predicate on one element_state row (value bound separately)."""
     if kind == "material":
         return f"LOWER({alias}.material)=LOWER(?)"
+    if kind == "part":
+        return f"LOWER({alias}.part)=LOWER(?)"
     if kind == "project":
         if have_project:
             return f"LOWER({alias}.project)=LOWER(?)"
@@ -100,6 +106,8 @@ def _row_matches(row: dict, kind: str, value: str) -> bool:
     v = (value or "").lower()
     if kind == "material":
         return (row.get("material") or "").lower() == v
+    if kind == "part":
+        return (row.get("part") or "").lower() == v
     if kind == "project":
         return _project_of(row).lower() == v
     if kind == "drawing":
@@ -136,10 +144,15 @@ def search_stacked(db: Path, chips: list[tuple[str, str]], ever: bool = False) -
     con = _con(db)
     sel = _select(con)
     have_project = "project" in _cols(con)
+    have_part = "part" in _cols(con)
     args: list = []
 
     def exists_for(kind: str, val: str, current_only: bool) -> str:
-        cond = _chip_condition(kind, "e2", have_project)
+        if kind == "part" and not have_part:
+            # pre-part index: fall back to annotation substring
+            cond = "LOWER(COALESCE(e2.text_raw,'')) LIKE '%' || LOWER(?) || '%'"
+        else:
+            cond = _chip_condition(kind, "e2", have_project)
         q = ("EXISTS (SELECT 1 FROM element_state e2 WHERE e2.drawing=e.drawing "
              f"AND {cond}")
         a = [val]
@@ -216,15 +229,23 @@ def search_stacked(db: Path, chips: list[tuple[str, str]], ever: bool = False) -
     return {"drawings": info, "rows": rows, "deleted": deleted}
 
 
-def find(db: Path, material=None, value=None, text=None, drawing=None, project=None, ever: bool = False) -> list[dict]:
+def find(db: Path, material=None, part=None, value=None, text=None, drawing=None, project=None, ever: bool = False) -> list[dict]:
     con = _con(db)
     sel = _select(con)
     have_project = "project" in _cols(con)
+    have_part = "part" in _cols(con)
     q = f"SELECT {sel} FROM element_state WHERE 1=1"
     args: list = []
     if material:
         q += " AND LOWER(material)=LOWER(?)"
         args.append(material)
+    if part:
+        if have_part:
+            q += " AND LOWER(part)=LOWER(?)"
+            args.append(part)
+        else:
+            q += " AND LOWER(COALESCE(text_raw,'')) LIKE '%' || LOWER(?) || '%'"
+            args.append(part)
     if value is not None:
         q += " AND value=?"
         args.append(value)

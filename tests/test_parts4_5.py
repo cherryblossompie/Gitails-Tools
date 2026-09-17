@@ -194,3 +194,40 @@ def test_cli_extract_check(tmp_path):
     r = runner.invoke(cli, ["extract", str(dxf), "--state-dir", str(repo / "state"),
                             "--config-dir", str(CFG.parent), "--check"])
     assert r.exit_code == 1
+
+
+def test_part_facet_end_to_end(tmp_path):
+    """'INTERNAL TIMBER LINING' is found via material=timber AND part=lining."""
+    repo = make_repo(tmp_path)
+    doc = ezdxf.new("R2018")
+    msp = doc.modelspace()
+    msp.add_mtext("INTERNAL TIMBER LINING", dxfattribs={"layer": "A"}).dxf.insert = (0, 0)
+    msp.add_mtext("SELECTED TIMBER DECKING", dxfattribs={"layer": "A"}).dxf.insert = (0, 10)
+    msp.add_mtext("3mm GLASS", dxfattribs={"layer": "A"}).dxf.insert = (0, 20)
+    doc.saveas(str(repo / "drawings" / "F.dxf"))
+    extract_to_repo(repo / "drawings" / "F.dxf", repo)
+    git(repo, "add", ".")
+    git(repo, "commit", "-m", "finishes")
+    db = tmp_path / "index.sqlite"
+    build_index(repo, db)
+    assert {r["text_raw"] for r in find(db, material="timber", ever=False)} == \
+        {"INTERNAL TIMBER LINING", "SELECTED TIMBER DECKING"}
+    assert [r["text_raw"] for r in find(db, part="lining", ever=False)] == \
+        ["INTERNAL TIMBER LINING"]
+    res = search_stacked(db, [("material", "timber"), ("part", "lining")])
+    assert [d["drawing"] for d in res["drawings"]] == ["F"]
+    # matched = satisfies >=1 chip: lining matches both, decking matches timber
+    assert {r["text_raw"] for r in res["rows"] if r["matched"]} == \
+        {"INTERNAL TIMBER LINING", "SELECTED TIMBER DECKING"}
+    res2 = search_stacked(db, [("part", "lining"), ("part", "decking")])
+    assert [d["drawing"] for d in res2["drawings"]] == ["F"]  # drawing holds both parts
+    # CLI parity incl. stacked auto-switch
+    runner = CliRunner()
+    r = runner.invoke(cli, ["find", "--db", str(db), "--part", "lining", "--json"])
+    assert r.exit_code == 0
+    assert json.loads(r.output)[0]["text_raw"] == "INTERNAL TIMBER LINING"
+    r = runner.invoke(cli, ["find", "--db", str(db), "--material", "timber",
+                            "--part", "decking", "--json"])
+    assert r.exit_code == 0
+    got = json.loads("\n".join(l for l in r.output.splitlines() if not l.startswith("note:")))
+    assert [d["drawing"] for d in got["drawings"]] == ["F"]

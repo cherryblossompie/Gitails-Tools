@@ -231,12 +231,34 @@ def test_7_unparseable_kept_searchable(tmp_path):
     ("75x50 SHS", {"material": "steel", "profile": "SHS", "dims": [75, 50]}),
     ("R2.5 BATT INSUL", {"material": "insulation", "r_value": 2.5}),
     ("2mm TOUGHENED GLASS", {"material": "glass", "value": 2, "unit": "mm", "qualifier": "toughened"}),
+    ("INTERNAL TIMBER LINING", {"material": "timber", "part": "lining"}),
+    ("SELECTED TIMBER DECKING", {"material": "timber", "part": "decking"}),
+    ("TYPICAL TIMBER ENTRY DOOR", {"material": "timber", "part": "entry"}),
+    ("ENTRY MAT", {"part": "entry"}),
+    ("WALLS: T1", {"part": "wall"}),
 ])
 def test_semantics_table(raw, expected):
     got = parse_text(raw, materials())
     assert got is not None
     for k, v in expected.items():
         assert got.get(k) == v
+    # full-dict equality guards against stray keys breaking the index schema
+    assert set(got) == set(expected)
+
+
+def test_bundled_config_fallback(tmp_path):
+    from gitail.semantics import load_config_dir
+    cfg, source = load_config_dir(tmp_path / "does-not-exist")
+    assert cfg.get("materials", {}).get("timber")
+    assert source == "bundled defaults"
+    assert parse_text("INTERNAL TIMBER LINING", cfg) == {"material": "timber", "part": "lining"}
+
+
+def test_part_backfill_is_not_an_edit():
+    from gitail.identity import _parsed_equal
+    assert _parsed_equal({"material": "timber"}, {"material": "timber", "part": "lining"})
+    assert not _parsed_equal({"material": "timber", "part": "lining"},
+                             {"material": "timber", "part": "door"})
 
 
 def test_polyline_normalized_to_lwpolyline(tmp_path):

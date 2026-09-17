@@ -45,6 +45,8 @@ CREATE INDEX IF NOT EXISTS idx_date ON element_state(commit_date);
 
 MIGRATE_PROJECT = "ALTER TABLE element_state ADD COLUMN project TEXT"
 IDX_PROJECT = "CREATE INDEX IF NOT EXISTS idx_project ON element_state(project)"
+MIGRATE_PART = "ALTER TABLE element_state ADD COLUMN part TEXT"
+IDX_PART = "CREATE INDEX IF NOT EXISTS idx_part ON element_state(part)"
 
 
 def _drawing_and_project(state_path: str, state_dir: str = "state") -> tuple[str, str]:
@@ -126,6 +128,14 @@ def build_index(repo: Path, db_path: Path, state_dir: str = "state") -> dict:
     except sqlite3.OperationalError:
         pass  # column already exists on re-run
     con.execute(IDX_PROJECT)
+    cols = [r[1] for r in con.execute("PRAGMA table_info(element_state)").fetchall()]
+    if "part" not in cols:
+        # schema upgrade: part did not exist when old rows were indexed.
+        # The index is derived — rebuild it whole rather than mixing.
+        con.execute(MIGRATE_PART)
+        con.execute("DELETE FROM element_state")
+        con.execute("DELETE FROM indexed_commits")
+    con.execute(IDX_PART)
     done = {r[0] for r in con.execute("SELECT commit_sha FROM indexed_commits")}
     commits = _commits(repo)
     # drop rows for commits no longer in history (rewrite/force-push safety)
@@ -163,11 +173,11 @@ def build_index(repo: Path, db_path: Path, state_dir: str = "state") -> dict:
                 con.execute(
                     "INSERT OR REPLACE INTO element_state "
                     "(element_id,commit_sha,commit_date,author,commit_message,drawing,project,"
-                    " type,layer,material,value,unit,text_raw,x,y,status,match_tier,match_confidence)"
-                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    " type,layer,material,part,value,unit,text_raw,x,y,status,match_tier,match_confidence)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (eid, sha, c["date"], c["author"], c["message"], drawing, project,
                      rec.get("type"), rec.get("layer"),
-                     parsed.get("material"), parsed.get("value"), parsed.get("unit"),
+                     parsed.get("material"), parsed.get("part"), parsed.get("value"), parsed.get("unit"),
                      rec.get("text_raw"),
                      (rec.get("geom") or {}).get("x"), (rec.get("geom") or {}).get("y"),
                      st,
@@ -181,11 +191,11 @@ def build_index(repo: Path, db_path: Path, state_dir: str = "state") -> dict:
                     con.execute(
                         "INSERT OR REPLACE INTO element_state "
                         "(element_id,commit_sha,commit_date,author,commit_message,drawing,project,"
-                        " type,layer,material,value,unit,text_raw,x,y,status,match_tier,match_confidence)"
-                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        " type,layer,material,part,value,unit,text_raw,x,y,status,match_tier,match_confidence)"
+                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (eid, sha, c["date"], c["author"], c["message"], drawing, project,
                          prec.get("type"), prec.get("layer"),
-                         p.get("material"), p.get("value"), p.get("unit"),
+                         p.get("material"), p.get("part"), p.get("value"), p.get("unit"),
                          prec.get("text_raw"),
                          (prec.get("geom") or {}).get("x"), (prec.get("geom") or {}).get("y"),
                          "deleted", "committed", 1.0))
@@ -199,11 +209,11 @@ def build_index(repo: Path, db_path: Path, state_dir: str = "state") -> dict:
                     con.execute(
                         "INSERT OR REPLACE INTO element_state "
                         "(element_id,commit_sha,commit_date,author,commit_message,drawing,project,"
-                        " type,layer,material,value,unit,text_raw,x,y,status,match_tier,match_confidence)"
-                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        " type,layer,material,part,value,unit,text_raw,x,y,status,match_tier,match_confidence)"
+                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (eid, sha, c["date"], c["author"], c["message"], drawing, project,
                          prec.get("type"), prec.get("layer"),
-                         p.get("material"), p.get("value"), p.get("unit"),
+                         p.get("material"), p.get("part"), p.get("value"), p.get("unit"),
                          prec.get("text_raw"),
                          (prec.get("geom") or {}).get("x"), (prec.get("geom") or {}).get("y"),
                          "deleted", "committed", 1.0))
