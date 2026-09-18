@@ -1,4 +1,4 @@
-"""Part 3 — semantic parsing of annotation strings and hatch patterns.
+"""Part 3 ??semantic parsing of annotation strings and hatch patterns.
 
 Driven entirely by config/materials.yaml. Never drops an element:
 on parse failure returns None and the caller keeps text_raw searchable.
@@ -24,7 +24,7 @@ def load_config_dir(config_dir: str | Path) -> tuple[dict, str]:
     """Materials config with bundled fallback.
 
     Returns (cfg, source). Firms override via --config-dir; otherwise the
-    configs shipped inside the package apply — so serve/CLI parse identically
+    configs shipped inside the package apply ??so serve/CLI parse identically
     no matter which directory they start from. Without this, a server started
     in the drawings repo (which has no config/) silently parses nothing.
     """
@@ -81,7 +81,7 @@ def _find_qualifier(lower: str, cfg: dict, materials: dict) -> str | None:
         if re.search(r"\b" + re.escape(short) + r"\.", lower):
             return full
     for q in quals:
-        if str(q).lower() in lower:
+        if re.search(r"\b" + re.escape(str(q).lower()) + r"\b", lower):
             return str(q).lower()
     # free-standing VARIES / TBC without dots
     for word in ("varies", "tbc", "nominal", "typical"):
@@ -114,6 +114,59 @@ def _find_part(raw: str, cfg: dict) -> str | None:
     return best
 
 
+# Addendum A.5 ??measure words. A setdown is not a thickness: the measure type
+# becomes the attribute (attr.setdown), never attr.thickness. Priority order
+# matters (setdown before slab-adjacent generics); bare numbers stay thickness.
+MEASURE_WORDS: list[tuple[str, str]] = [
+    ("setdowns", "setdown"),
+    ("setdown", "setdown"),
+    ("falls", "fall"),
+    ("fall", "fall"),
+    ("setbacks", "setback"),
+    ("setback", "setback"),
+    ("clearances", "dimension"),
+    ("clearance", "dimension"),
+    ("overlaps", "dimension"),
+    ("overlap", "dimension"),
+    ("upstands", "dimension"),
+    ("upstand", "dimension"),
+    ("returns", "dimension"),
+    ("return", "dimension"),
+    ("gaps", "dimension"),
+    ("gap", "dimension"),
+    ("thickness", "thickness"),
+    ("thick", "thickness"),
+    ("thk", "thickness"),
+]
+
+# Cross-trade delegation: "REFER ENG. DWGS" delegates the spec, it does not
+# describe this detail's own build-up.
+DELEGATE_TO = [
+    (r"\bENG(?:INEER(?:ING)?)?\b", "engineering"),
+    (r"\bSTRUCT(?:URAL)?\b", "structural"),
+    (r"\bHYDRAULIC\b", "hydraulic"),
+    (r"\bELECTRICAL\b", "electrical"),
+]
+
+
+def _find_measure(lower: str) -> str | None:
+    """Measure type word, or None for a bare (thickness) reading."""
+    for word, measure in MEASURE_WORDS:
+        if re.search(r"\b" + re.escape(word) + r"\b", lower):
+            return measure
+    return None
+
+
+def _find_spec_delegated(raw: str) -> dict | None:
+    """'REFER ENG. DWGS FOR DETAILS' -> {"to": "engineering"}."""
+    if not re.search(r"\bREFER\b", raw, re.IGNORECASE):
+        return None
+    for pattern, to in DELEGATE_TO:
+        if re.search(pattern, raw, re.IGNORECASE):
+            return {"to": to}
+    return None
+
+
 def parse_text(text_raw: str | None, cfg: dict) -> dict | None:
     """Parse an annotation string into structured fields.
 
@@ -124,12 +177,25 @@ def parse_text(text_raw: str | None, cfg: dict) -> dict | None:
     raw = str(text_raw).strip()
     lower = raw.lower()
     materials = cfg.get("materials", {}) or {}
+    measure = _find_measure(lower)  # addendum A.5: setdown/fall are not thickness
+    delegated = _find_spec_delegated(raw)
+
+    def _finish(out: dict | None) -> dict | None:
+        if out is None:
+            if measure is not None and measure != "thickness":
+                return {"measure": measure}
+            return delegated if delegated else None
+        if measure is not None and measure != "thickness":
+            out["measure"] = measure
+        if delegated:
+            out["spec_delegated"] = delegated
+        return out
 
     profile = _find_profile(raw, materials)
 
-    # Profile dims like 75x50 SHS — return early, thickness does not apply.
+    # Profile dims like 75x50 SHS ??return early, thickness does not apply.
     if profile:
-        dm = re.search(r"(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)", raw)
+        dm = re.search(r"(\d+(?:\.\d+)?)\s*[xX?]\s*(\d+(?:\.\d+)?)", raw)
         dims = [float(dm.group(1)), float(dm.group(2))] if dm else None
         material = _find_material(lower, materials) or "steel"
         out: dict = {"material": material, "profile": profile}
@@ -142,7 +208,7 @@ def parse_text(text_raw: str | None, cfg: dict) -> dict | None:
         part = _find_part(raw, cfg)
         if part:
             out["part"] = part
-        return out
+        return _finish(out)
 
     material = _find_material(lower, materials)
     part = _find_part(raw, cfg)
@@ -156,30 +222,51 @@ def parse_text(text_raw: str | None, cfg: dict) -> dict | None:
             out["qualifier"] = q
         if part:
             out["part"] = part
-        return out
+        return _finish(out)
 
     if material is None:
-        # No material, but a recognizable component ("ENTRY MAT") — keep the
+        # Addendum A.5 measure-only: setdown/fall keep value with no material.
+        if measure is not None and measure != "thickness":
+            c2 = list(re.finditer(r"(\d+(?:\.\d+)?)\s*(mm|thk|cm|m)?\b", raw, re.IGNORECASE))
+            v2 = None; u2 = None
+            ratio = measure == "fall" and re.search(r"\d\s*:\s*\d", raw)
+            if c2 and not ratio:
+                wu = [c for c in c2 if (c.group(2) or "").lower() in ("mm", "thk")]
+                pk = wu[0] if wu else c2[0]
+                nn = float(pk.group(1)); uu = (pk.group(2) or "").lower()
+                if uu == "cm": nn *= 10.0
+                if uu == "m": nn *= 1000.0
+                u2 = "mm"; v2 = int(nn) if float(nn).is_integer() else nn
+            o2 = {"measure": measure}
+            if v2 is not None: o2["value"] = v2; o2["unit"] = u2 or "mm"
+            if part: o2["part"] = part
+            q2 = _find_qualifier(lower, cfg, materials)
+            if q2: o2["qualifier"] = q2
+            d2 = _find_spec_delegated(raw)
+            if d2: o2["spec_delegated"] = d2
+            return o2
+        # No material, but a recognizable component ("ENTRY MAT") ??keep the
         # part so the element stays categorized instead of unparseable.
         if part:
             out = {"part": part}
             q = _find_qualifier(lower, cfg, materials)
             if q:
                 out["qualifier"] = q
-            return out
+            return _finish(out)
         # Deliberately unspecified dimension ("WALLTYPE VARIES") is information:
         # keep the qualifier so it is searchable as indeterminate.
         q = _find_qualifier(lower, cfg, materials)
         if q in ("varies", "tbc"):
-            return {"qualifier": q}
-        return None
+            return _finish({"qualifier": q})
+        return _finish(None)
 
-    # Thickness: prefer number with mm/THK unit, else first bare number.
-    # Handles "2mm GLASS", "GLASS 2mm", "12 THK PLYWOOD", "6.38 LAMINATED".
+    # Thickness (or other measure): prefer number with mm/THK unit, else first
+    # bare number. Handles "2mm GLASS", "GLASS 2mm", "12 THK PLYWOOD",
+    # "6.38 LAMINATED". A ratio ("1:100 FALL") is not a millimetre value.
     candidates = list(re.finditer(r"(\d+(?:\.\d+)?)\s*(mm|thk|cm|m)?\b", raw, re.IGNORECASE))
     value = None
     unit = None
-    if candidates:
+    if candidates and not (measure == "fall" and re.search(r"\d\s*:\s*\d", raw)):
         with_unit = [c for c in candidates if (c.group(2) or "").lower() in ("mm", "thk")]
         pick = with_unit[0] if with_unit else candidates[0]
         num = float(pick.group(1))
@@ -205,7 +292,7 @@ def parse_text(text_raw: str | None, cfg: dict) -> dict | None:
         out["qualifier"] = q
     if part:
         out["part"] = part
-    return out
+    return _finish(out)
 
 
 def parse_hatch(pattern_name: str | None, cfg: dict) -> str | None:
