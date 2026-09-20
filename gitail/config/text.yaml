@@ -1,0 +1,35 @@
+# Text reassembly tolerances (addendum A) — TUNABLE PER FIRM, not constants.
+# One annotation is frequently drawn as several text entities; these govern
+# how lines merge back into annotations before semantic parsing.
+
+# Same left edge (or right edge when right-aligned), in mm.
+left_edge_tolerance_mm: 1.5
+
+# Same text height within this fraction.
+height_ratio_tolerance: 0.15
+
+# Vertical gap between adjacent lines, as a multiple of text height.
+line_gap_ratio: [0.9, 1.7]
+
+# Same rotation within these degrees — never merge across rotation.
+same_rotation_tolerance_deg: 1.0
+
+# Lines merge only on the same layer — never across layers.
+same_layer_required: true
+
+# A leader captures text lines whose bbox lies within this of its text-side
+# endpoint (mm). One annotation has exactly one leader.
+leader_text_capture_mm: 8.0
+
+# Continuation words: a residual line starting with one of these, parsing to
+# nothing, belongs to the previous line (parse-completeness signal).
+continuation_words:
+  - FOR
+  - TO
+  - ON
+  - WITH
+  - AT
+  - AND
+  - OF
+  - REFER
+  - DWGS

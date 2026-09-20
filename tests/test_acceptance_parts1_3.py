@@ -49,7 +49,13 @@ def save(doc, path):
 
 def run_extract(dxf, state_dir, config_dir=None):
     runner = CliRunner()
-    args = [str(dxf), "--state-dir", str(state_dir)]
+    dxf = Path(dxf)
+    scope = dxf.parent  # keep every artifact (details/thumbs/crops) beside the dxf
+    args = [str(dxf), "--state-dir", str(state_dir),
+            "--drawings-dir", str(scope),
+            "--details-dir", str(scope / "details"),
+            "--thumbs-dir", str(scope / "thumbs"),
+            "--crops-dir", str(scope / "crops")]
     if config_dir:
         args += ["--config-dir", str(config_dir)]
     else:

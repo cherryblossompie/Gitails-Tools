@@ -1,0 +1,87 @@
+{
+  "details": [
+    {
+      "assembly": null,
+      "build_up": [
+        {
+          "confidence": "high",
+          "element_id": "e_b6f7a7",
+          "material": "glass",
+          "qualifier": null,
+          "thickness": 3.0
+        }
+      ],
+      "classifications": [
+        {
+          "attribution_chain": "leader",
+          "confidence": "high",
+          "element_id": "e_b6f7a7",
+          "exact_value": 3.0,
+          "path": [
+            "attr.material",
+            "value.glass"
+          ]
+        },
+        {
+          "attribution_chain": "leader",
+          "confidence": "high",
+          "element_id": "e_b6f7a7",
+          "exact_value": 3.0,
+          "path": [
+            "attr.thickness",
+            "value.3mm"
+          ]
+        }
+      ],
+      "classified_by": "none",
+      "components": [],
+      "context": null,
+      "depends_on": [],
+      "detail_id": "d_a936",
+      "detail_tag": "SHEET",
+      "element_ids": [
+        "e_353bc8",
+        "e_b6f7a7"
+      ],
+      "entity_count": 2,
+      "facet_nodes": [],
+      "fidelity": "full",
+      "junction_type": null,
+      "near_duplicates": [],
+      "performance": {
+        "acoustic": null,
+        "fire_rating": null,
+        "wet_area": false
+      },
+      "phash": "ffffffffffff0000c276c0748470ffffffffffffffffffffffffffffffffffff",
+      "projection": null,
+      "provenance": {
+        "firm": null,
+        "project": null,
+        "status": "unknown",
+        "year": null
+      },
+      "reusable": true,
+      "scale": null,
+      "segmentation": "uncertain",
+      "sheet_region_bbox": [
+        0.0,
+        -7.5,
+        12.4,
+        0.0
+      ],
+      "source_sheet": "D-101",
+      "spec_delegated": null,
+      "standards": [],
+      "text_blob": "3mm GLASS",
+      "thumbnail": "thumbs/D-101.d_a936.png",
+      "title": "Typical details",
+      "total_thickness": null
+    }
+  ],
+  "dim_review": [],
+  "drawing": "D-101",
+  "quarantine_candidates": [],
+  "segmentation": "uncertain",
+  "uncertain_reason": "no title markers found"
+}

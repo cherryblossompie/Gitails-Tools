@@ -1,0 +1,90 @@
+# Seed Level 4 — finish values under attr.finish.
+nodes:
+- id: value.powdercoat
+  level: value
+  label: Powdercoat
+  slug: powdercoat
+  parents: [attr.finish]
+  synonyms: [powder coat, powder coated]
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: value.anodised
+  level: value
+  label: Anodised
+  slug: anodised
+  parents: [attr.finish]
+  synonyms: [anodized]
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: value.painted
+  level: value
+  label: Painted
+  slug: painted
+  parents: [attr.finish]
+  synonyms: [paint finish]
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: value.galvanised
+  level: value
+  label: Galvanised
+  slug: galvanised
+  parents: [attr.finish]
+  synonyms: [galvanized, galv]
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: value.pvd
+  level: value
+  label: PVD
+  slug: pvd
+  parents: [attr.finish]
+  synonyms: [physical vapour deposition]
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: value.oiled
+  level: value
+  label: Oiled
+  slug: oiled
+  parents: [attr.finish]
+  synonyms: [oil finish]
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: value.polished
+  level: value
+  label: Polished
+  slug: polished
+  parents: [attr.finish]
+  synonyms: []
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: value.mill
+  level: value
+  label: Mill
+  slug: mill
+  parents: [attr.finish]
+  synonyms: [mill finish, unfinished]
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null

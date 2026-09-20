@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import re
 from pathlib import Path
 
 from .semantics import parse_annotation
@@ -299,14 +300,14 @@ def fingerprint_for(type_: str, layer: str, geom: dict, text_raw, hatch_pattern,
     return "sha1:" + hashlib.sha1(canon.encode("utf-8")).hexdigest()
 
 
-def extract_state(dxf_path: str | Path, materials_cfg: dict) -> list[dict]:
+def extract_state(dxf_path: str | Path, materials_cfg: dict, text_cfg: dict | None = None) -> list[dict]:
     """Read DXF modelspace and return canonical records (no element_id yet)."""
     import ezdxf
     doc = ezdxf.readfile(str(dxf_path))
-    return extract_state_from_doc(doc, materials_cfg)
+    return extract_state_from_doc(doc, materials_cfg, text_cfg)
 
 
-def extract_state_from_doc(doc, materials_cfg: dict) -> list[dict]:
+def extract_state_from_doc(doc, materials_cfg: dict, text_cfg: dict | None = None) -> list[dict]:
     """Same as extract_state but from an open document (tests, in-memory edits)."""
     msp = doc.modelspace()
     out: list[dict] = []
@@ -388,68 +389,287 @@ def extract_state_from_doc(doc, materials_cfg: dict) -> list[dict]:
         out.append(rec)
 
     out.sort(key=lambda r: (r["layer"], r["type"], r["geom"]["x"], r["geom"]["y"], r.get("text_raw") or ""))
+    # Addendum A: reassemble text entities into annotations BEFORE parsing.
+    # Parse annotations, never text lines.
+    try:
+        from .reassemble import reassemble_records
+        out = reassemble_records(out, doc, materials_cfg, text_cfg)
+    except Exception:
+        pass
     return out
 
 
 PT_TO_MM = 25.4 / 72.0  # PDF points -> mm: keeps tolerances/rounding identical to DXF
 
 
-def extract_pdf_state(pdf_path: str | Path, materials_cfg: dict) -> list[dict]:
-    """PDF text layer -> canonical records (no element_id yet).
+def pdfminer_spans(pdf_path: str | Path) -> list[dict]:
+    """Raw text spans from a vector PDF (addendum A.3): one dict per
+    pdfminer LTChar run — text, bbox (points), size, rotation, font, page.
 
-    One record per non-empty text line: type PDFTEXT, layer PDF-P{page},
-    geometry in mm converted from PDF points. Parsed with the same
-    materials config, so `find --material` works across DXF and PDF sources.
-    Empty list <=> no text layer (e.g. scanned raster) — caller keeps the
-    PDF as view-only. Deterministic sort: page, then bottom-up y, x, text.
+    Exporters emit text in draw order, not reading order, so NO block/line
+    grouping is trusted here; clustering happens downstream from spans.
+    Returns [] when the PDF has no text layer (scanned raster).
     """
+    import math
     from pdfminer.high_level import extract_pages
-    from pdfminer.layout import LTContainer, LTTextLine
-
-    out: list[dict] = []
+    from pdfminer.layout import LTAnno, LTChar, LTContainer, LTTextLine
     try:
         pages = list(extract_pages(str(pdf_path)))
     except Exception:
         return []
+    spans = []
     for pno, page in enumerate(pages, 1):
-        lineno = 0
-
         def walk(el):
-            nonlocal lineno
             if isinstance(el, LTTextLine):
-                text = (el.get_text() or "").strip()
-                if not text:
-                    return
-                lineno += 1
-                x0, y0, x1, y1 = (r1(v * PT_TO_MM) for v in (el.x0, el.y0, el.x1, el.y1))
-                geom = {"x": r1((x0 + x1) / 2.0), "y": r1((y0 + y1) / 2.0),
-                        "bbox": [x0, y0, x1, y1]}
-                parsed = parse_annotation(text, None, materials_cfg)
-                fp = fingerprint_for("PDFTEXT", f"PDF-P{pno}", geom, text, None, None, None)
-                out.append({
-                    "dxf_handle": f"pdf:{pno:02d}-{lineno:04d}",
-                    "type": "PDFTEXT",
-                    "layer": f"PDF-P{pno}",
-                    "geom": geom,
-                    "text_raw": text,
-                    "parsed": parsed,
-                    "hatch_pattern": None,
-                    "dim_measurement": None,
-                    "dim_override": None,
-                    "fingerprint": fp,
-                    "height": None, "rotation": None, "vertices": None, "length": None,
-                    "linetype": None, "hatch_scale": None, "hatch_area": None,
-                    "dim_defpoints": None, "dim_style": None,
-                    "insert_x": None, "insert_y": None,
-                    "source": "pdf",
-                })
+                buf: list[dict] = []
+
+                def flush():
+                    if not buf:
+                        return
+                    text = "".join(b["ch"] for b in buf)
+                    if text.strip():
+                        x0 = min(b["x0"] for b in buf)
+                        y0 = min(b["y0"] for b in buf)
+                        x1 = max(b["x1"] for b in buf)
+                        y1 = max(b["y1"] for b in buf)
+                        sizes = sorted(b["size"] for b in buf)
+                        rots = sorted(b["rot"] for b in buf)
+                        spans.append({"text": text, "bbox": (x0, y0, x1, y1),
+                                      "size": sizes[len(sizes) // 2],
+                                      "rotation": rots[len(rots) // 2],
+                                      "font": buf[0]["font"], "page": pno})
+                    buf.clear()
+
+                pending_space = False
+                for item in el:
+                    if isinstance(item, LTAnno):
+                        if item.get_text() and item.get_text().strip() == "":
+                            pending_space = True
+                        continue
+                    if not isinstance(item, LTChar):
+                        continue
+                    ch = item.get_text()
+                    try:
+                        m = item.matrix
+                        rot = round(math.degrees(math.atan2(m[1], m[0]))) % 360
+                    except Exception:
+                        rot = 0 if getattr(item, "upright", True) else 90
+                    if pending_space and buf:
+                        # pdfminer represents word gaps as LTAnno between chars
+                        buf.append({"ch": " ", "x0": item.x0, "y0": item.y0,
+                                    "x1": item.x0, "y1": item.y0,
+                                    "size": item.size, "rot": rot,
+                                    "font": item.fontname})
+                    pending_space = False
+                    buf.append({"ch": ch, "x0": item.x0, "y0": item.y0,
+                                "x1": item.x1, "y1": item.y1,
+                                "size": item.size, "rot": rot,
+                                "font": item.fontname})
+                flush()
             elif isinstance(el, LTContainer):
                 for child in el:
                     walk(child)
-
         try:
             walk(page)
         except Exception:
             continue
-    out.sort(key=lambda r: (r["layer"], r["geom"]["y"], r["geom"]["x"], r.get("text_raw") or ""))
+    return spans
+
+
+def pdfminer_paths(pdf_path: str | Path) -> list[dict]:
+    """Stroked path segments (LTLine/LTRect edges, LTFigure recursion) in mm.
+    Chain A2's primary geometry source for PDFs, where no DIMENSION entity
+    can exist. Curves reduce to endpoints (documented approximation)."""
+    from pdfminer.high_level import extract_pages
+    from pdfminer.layout import LTContainer, LTCurve, LTFigure, LTLine, LTRect
+    try:
+        pages = list(extract_pages(str(pdf_path)))
+    except Exception:
+        return []
+    segs = []
+    for pno, page in enumerate(pages, 1):
+        def emit(x0, y0, x1, y1):
+            segs.append({"page": pno,
+                         "a": (r1(x0 * PT_TO_MM), r1(y0 * PT_TO_MM)),
+                         "b": (r1(x1 * PT_TO_MM), r1(y1 * PT_TO_MM))})
+
+        def walk(el):
+            if isinstance(el, LTLine):
+                emit(el.x0, el.y0, el.x1, el.y1)
+            elif isinstance(el, LTRect):
+                emit(el.x0, el.y0, el.x1, el.y0)
+                emit(el.x1, el.y0, el.x1, el.y1)
+                emit(el.x1, el.y1, el.x0, el.y1)
+                emit(el.x0, el.y1, el.x0, el.y0)
+            elif isinstance(el, LTCurve):
+                pts = getattr(el, "pts", None) or []
+                if len(pts) >= 2:
+                    emit(pts[0][0], pts[0][1], pts[-1][0], pts[-1][1])
+            elif isinstance(el, (LTFigure, LTContainer)):
+                for child in el:
+                    walk(child)
+        try:
+            walk(page)
+        except Exception:
+            continue
+    return segs
+
+
+def cluster_spans_to_lines(spans: list[dict], text_cfg: dict | None = None) -> list[dict]:
+    """Spans -> visual text lines (addendum A.3): same baseline within
+    tolerance, horizontally contiguous, same size. A single visual line is
+    often several spans (kerning, font switches); per-character exporters
+    merge here too, by baseline and horizontal adjacency."""
+    tol_h = 0.15
+    lines: list[list[dict]] = []
+    for sp in spans:
+        # Whitespace-only spans still mark word gaps (test 93): keep them
+        # for gap measurement, then drop them at text assembly.
+        if not (sp.get("text") or ""):
+            continue
+        x0, y0, x1, y1 = sp["bbox"]
+        size = sp.get("size") or 1.0
+        rot = sp.get("rotation") or 0
+        placed = False
+        for ln in lines:
+            first = ln[0]
+            if (first.get("rotation") or 0) != rot:
+                continue
+            fsize = first.get("size") or 1.0
+            if abs(size - fsize) / max(size, fsize) > tol_h:
+                continue
+            fx0, fy0, fx1, fy1 = first["line_bbox"]
+            if rot % 180 == 0:
+                if abs(y0 - fy0) > 0.3 * max(size, fsize):
+                    continue
+                gap_ok = (x0 <= fx1 + 0.6 * size) and (fx0 <= x1 + 0.6 * size)
+            else:
+                if abs(x0 - fx0) > 0.3 * max(size, fsize):
+                    continue
+                gap_ok = (y0 <= fy1 + 0.6 * size) and (fy0 <= y1 + 0.6 * size)
+            if not gap_ok:
+                continue
+            ln.append(sp)
+            fx = [first["line_bbox"][0], first["line_bbox"][1],
+                  first["line_bbox"][2], first["line_bbox"][3]]
+            first["line_bbox"] = [min(fx[0], x0), min(fx[1], y0),
+                                  max(fx[2], x1), max(fx[3], y1)]
+            placed = True
+            break
+        if not placed:
+            first = dict(sp)
+            first["line_bbox"] = [x0, y0, x1, y1]
+            lines.append([first])
+    out = []
+    for ln in lines:
+        rot = ln[0].get("rotation") or 0
+        ordered = sorted(ln, key=lambda s: s["bbox"][0] if rot % 180 == 0 else s["bbox"][1])
+        # Per-character exporters emit no space chars: a horizontal gap wider
+        # than half the char size marks a word break (test 93).
+        parts: list[str] = []
+        prev_end = None
+        for s in ordered:
+            t = s.get("text") or ""
+            if not t.strip():
+                parts.append(" ")
+                prev_end = None
+                continue
+            if prev_end is not None and parts and not parts[-1].endswith(" "):
+                size = s.get("size") or ln[0].get("size") or 1.0
+                start = s["bbox"][0] if rot % 180 == 0 else s["bbox"][1]
+                if start - prev_end > 0.5 * size:
+                    parts.append(" ")
+            parts.append(t)
+            prev_end = s["bbox"][2] if rot % 180 == 0 else s["bbox"][3]
+        text = re.sub(r" {2,}", " ", "".join(parts)).strip()
+        if not text:
+            continue
+        xs = [s["bbox"][0] for s in ln] + [s["bbox"][2] for s in ln]
+        ys = [s["bbox"][1] for s in ln] + [s["bbox"][3] for s in ln]
+        sizes = sorted(s.get("size") or 0 for s in ln)
+        out.append({"text": text, "bbox": (min(xs), min(ys), max(xs), max(ys)),
+                    "size": sizes[len(sizes) // 2] if sizes else 0,
+                    "rotation": rot, "page": ln[0].get("page", 1)})
+    # draw order is untrustworthy — deterministic top-down, left-to-right
+    out.sort(key=lambda l: (-l["bbox"][3], l["bbox"][0]))
+    return out
+
+
+def extract_pdf_state(pdf_path: str | Path, materials_cfg: dict, text_cfg: dict | None = None) -> list[dict]:
+    """PDF text layer -> canonical records (no element_id yet).
+
+    Spans re-cluster into lines (never trusted exporter blocks), lines
+    reassemble into ANNOTATION records like DXF, plus PDFPATH records for
+    stroked segments (Chain A2 geometry). Positions in sheet mm. Empty list
+    <=> no text layer (e.g. scanned raster) — caller keeps the PDF as
+    view-only. Deterministic order.
+    """
+    from .reassemble import load_text_config, reassemble_records
+    text_cfg = text_cfg or load_text_config(None)
+    spans = pdfminer_spans(pdf_path)
+    if not spans:
+        return []
+    lines = cluster_spans_to_lines(spans, text_cfg)
+    paths = pdfminer_paths(pdf_path)
+    pseudo: list[dict] = []
+    per_page_line: dict[int, int] = {}
+    for ln in lines:
+        pno = ln.get("page", 1)
+        per_page_line[pno] = per_page_line.get(pno, 0) + 1
+        lineno = per_page_line[pno]
+        x0, y0, x1, y1 = (r1(v * PT_TO_MM) for v in ln["bbox"])
+        geom = {"x": r1((x0 + x1) / 2.0), "y": r1((y0 + y1) / 2.0),
+                "bbox": [x0, y0, x1, y1]}
+        size_mm = r1((ln.get("size") or 0) * PT_TO_MM)
+        pseudo.append({
+            "dxf_handle": f"pdf:{pno:02d}-{lineno:04d}",
+            "type": "PDFTEXT",
+            "layer": f"PDF-P{pno}",
+            "geom": geom,
+            "text_raw": ln["text"],
+            "parsed": None,  # parsed post-reassembly, on joined annotations
+            "hatch_pattern": None,
+            "dim_measurement": None,
+            "dim_override": None,
+            "fingerprint": "",
+            "height": size_mm or None,
+            "rotation": ln.get("rotation") or 0,
+            "vertices": None, "length": None,
+            "linetype": None, "hatch_scale": None, "hatch_area": None,
+            "dim_defpoints": None, "dim_style": None,
+            "insert_x": x0, "insert_y": y1,
+            "source": "pdf",
+        })
+    try:
+        out = reassemble_records(pseudo, None, materials_cfg, text_cfg)
+    except Exception:
+        out = pseudo
+    for rec in out:
+        rec["source"] = "pdf"
+    # stroked path geometry for Chain A2 (viewing never; measuring only)
+    for i, sg in enumerate(paths):
+        pno = sg["page"]
+        (ax, ay), (bx, by) = sg["a"], sg["b"]
+        out.append({
+            "dxf_handle": f"pdfpath:{pno:02d}-{i:04d}",
+            "type": "PDFPATH",
+            "layer": f"PDF-P{pno}",
+            "geom": {"x": r1((ax + bx) / 2.0), "y": r1((ay + by) / 2.0),
+                     "bbox": [min(ax, bx), min(ay, by), max(ax, bx), max(ay, by)]},
+            "text_raw": None, "parsed": None, "hatch_pattern": None,
+            "dim_measurement": None, "dim_override": None,
+            "fingerprint": fingerprint_for("PDFPATH", f"PDF-P{pno}",
+                                           {"x": r1((ax + bx) / 2.0), "y": r1((ay + by) / 2.0),
+                                            "bbox": [min(ax, bx), min(ay, by), max(ax, bx), max(ay, by)]},
+                                           None, None, None, None),
+            "height": None, "rotation": None,
+            "vertices": [[ax, ay], [bx, by]],
+            "length": r1(math.hypot(bx - ax, by - ay)),
+            "linetype": None, "hatch_scale": None, "hatch_area": None,
+            "dim_defpoints": None, "dim_style": None,
+            "insert_x": None, "insert_y": None,
+            "source": "pdf",
+        })
+    out.sort(key=lambda r: (r["layer"], r["type"], r["geom"]["x"], r["geom"]["y"],
+                            r.get("text_raw") or ""))
     return out

@@ -225,7 +225,8 @@ def test_serve_pdf_text_indexed_when_no_dxf_twin(tmp_path):
     rows = extract_pdf_state(pa, cfg)
     assert {r["text_raw"] for r in rows} >= {"3mm GLASS", "TERR 1"}
     glass = next(r for r in rows if r["text_raw"] == "3mm GLASS")
-    assert glass["type"] == "PDFTEXT" and glass["parsed"]["material"] == "glass"
+    assert glass["type"] == "ANNOTATION" and glass["parsed"]["material"] == "glass"
+    assert glass["source"] == "pdf" and len(glass["source_lines"]) == 1
     # deterministic re-extract
     rows2 = extract_pdf_state(pb, cfg)
     assert [(r["geom"], r["text_raw"]) for r in rows] == [(r["geom"], r["text_raw"]) for r in rows2]

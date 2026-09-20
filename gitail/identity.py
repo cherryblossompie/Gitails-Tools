@@ -197,9 +197,26 @@ def resolve(current_raw: list[dict], previous_live: list[dict], idmap: dict,
         tier = None
         conf = 1.0
 
-        # Tier 1 — handle
+        # Tier 1 — handle. Annotations carry a pipe-joined handle SET
+        # (addendum A.4, test 91): fall back to handle-set overlap so
+        # editing one line of a two-line annotation reads as value_changed
+        # on that annotation, not as a new element.
         key = (cn.get("dxf_handle"), cn.get("type"), cn.get("layer"))
         p1 = prev_by_handle.get(key)
+        if p1 is None:
+            cur_handles = set(str(cn.get("dxf_handle") or "").split("|")) - {""}
+            cur_handles |= set(cn.get("handles") or [])
+            if cur_handles:
+                for p in previous_live:
+                    if not p.get("element_id") or p.get("element_id") in used_prev:
+                        continue
+                    if p.get("type") != cn.get("type") or p.get("layer") != cn.get("layer"):
+                        continue
+                    prev_handles = set(str(p.get("dxf_handle") or "").split("|")) - {""}
+                    prev_handles |= set(p.get("handles") or [])
+                    if cur_handles & prev_handles:
+                        p1 = p
+                        break
         if p1 is not None and p1.get("element_id") not in used_prev:
             matched = p1
             tier = "handle"
@@ -234,7 +251,7 @@ def resolve(current_raw: list[dict], previous_live: list[dict], idmap: dict,
                 d = centroid_dist(cn, cand)
                 if d > tolerance:
                     continue
-                is_text = cn.get("type") in ("TEXT", "MTEXT", "MULTILEADER")
+                is_text = cn.get("type") in ("TEXT", "MTEXT", "MULTILEADER", "ANNOTATION")
                 if is_text:
                     s = text_sim(cn.get("text_raw"), cand.get("text_raw"))
                     if s < 0.6:

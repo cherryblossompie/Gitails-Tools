@@ -66,6 +66,33 @@ def _images_dir(ctx) -> Path:
     return Path(ctx["drawings_dir"]).parent / "images"
 
 
+def _thumbs_dir(ctx) -> Path:
+    if ctx.get("thumbs_dir"):
+        return Path(ctx["thumbs_dir"])
+    return Path(ctx["repo"]) / "thumbs"
+
+
+def _crops_dir(ctx) -> Path:
+    if ctx.get("crops_dir"):
+        return Path(ctx["crops_dir"])
+    return Path(ctx["repo"]) / "crops"
+
+
+def _taxonomy_dir(ctx):
+    """Owned taxonomy when the repo has one, else None (bundled seed)."""
+    if ctx.get("taxonomy_dir"):
+        return ctx["taxonomy_dir"]
+    owned = Path(ctx["repo"]) / "taxonomy"
+    return str(owned) if (owned / "nodes").is_dir() else None
+
+
+def _rel(ctx, path: Path) -> str | None:
+    try:
+        return path.resolve().relative_to(Path(ctx["repo"]).resolve()).as_posix()
+    except (ValueError, OSError):
+        return None
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "gitail-serve/0.1"
 
@@ -87,6 +114,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(_drawing_history(ctx, query))
         if path == "/api/drawing":
             return self._json(_drawing(ctx, query))
+        if path == "/api/tree-search":
+            return self._json(_tree_search(ctx, query))
+        if path == "/api/queue":
+            return self._json(_queue(ctx, query))
         if path == "/api/blob":
             return self._blob(ctx, query)
         if path.startswith("/pdf/"):
@@ -97,13 +128,61 @@ class Handler(BaseHTTPRequestHandler):
             sub = urllib.parse.unquote(path[len("/images/"):])
             ctype = IMAGE_CTYPES.get(sub.rsplit(".", 1)[-1].lower(), "application/octet-stream")
             return self._file(Path(ctx["images_dir"]), path[len("/images/"):], ctype)
+        if path.startswith("/crops/"):
+            return self._file(_crops_dir(ctx), path[len("/crops/"):], "image/png")
+        if path.startswith("/thumbs/"):
+            return self._file(_thumbs_dir(ctx), path[len("/thumbs/"):], "image/png")
         return self._text(404, "not found")
 
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
-        if parsed.path != "/api/upload":
-            return self._text(404, "not found")
-        return self._upload()
+        if parsed.path == "/api/upload":
+            return self._upload()
+        if parsed.path == "/api/resolve":
+            return self._resolve()
+        return self._text(404, "not found")
+
+    def _resolve(self):
+        """Quarantine actions from the review queue (assign/ignore/dismiss)."""
+        import json as _json
+        ctx = _ctx(self.server)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = _json.loads(self.rfile.read(length).decode("utf-8") or "{}")
+        except (ValueError, OSError):
+            return self._text(400, "bad JSON body")
+        op = (body.get("op") or "").strip()
+        key = (body.get("key") or "").strip()
+        actor = (body.get("actor") or "web").strip() or "web"
+        db = Path(ctx["db"])
+        try:
+            if op == "assign":
+                from .resolve import assign
+                out = assign(db, _taxonomy_dir(ctx), key, body.get("target") or "",
+                             actor, body.get("only") or None,
+                             bool(body.get("unsure")), repo=ctx["repo"])
+            elif op == "ignore":
+                from .resolve import ignore_cluster
+                out = ignore_cluster(db, _taxonomy_dir(ctx), key, actor,
+                                     repo=ctx["repo"])
+            elif op == "dismiss":
+                from .resolve import dismiss_cluster
+                out = dismiss_cluster(db, key, actor)
+            elif op == "confirm-dim":
+                from .resolve import confirm_dim
+                out = confirm_dim(db, _taxonomy_dir(ctx), key, actor,
+                                  repo=ctx["repo"])
+            else:
+                return self._text(400, "op must be assign | ignore | dismiss | confirm-dim")
+        except Exception as ex:
+            return self._text(400, f"resolve failed: {ex}")
+        try:
+            from .index import build_index
+            build_index(Path(ctx["repo"]), db,
+                        taxonomy_dir=_taxonomy_dir(ctx))
+        except Exception:
+            pass
+        return self._json({"ok": True, **out})
 
     # -- handlers --------------------------------------------------------
     def _page(self):
@@ -395,6 +474,46 @@ def _drawing_history(ctx, query) -> list:
         return []
 
 
+def _tree_search(ctx, query) -> dict:
+    from .taxonomy import load_taxonomy_cached
+    from .treeview import expand_detail, search_tree
+    db = Path(ctx["db"])
+    if not db.exists():
+        return {"results": [], "facet_counts": {}, "unclassified": []}
+    try:
+        tax = load_taxonomy_cached(_taxonomy_dir(ctx))
+    except Exception as ex:
+        return {"error": f"taxonomy failed: {ex}"}
+    get = lambda k: (query.get(k) or [""])[0] or None
+    try:
+        if get("expand"):
+            return expand_detail(db, tax, get("expand"))
+        return search_tree(db, tax, get("q"), get("node"))
+    except Exception as ex:
+        return {"error": str(ex)}
+
+
+def _queue(ctx, query) -> dict:
+    from .taxonomy import load_settings, load_taxonomy_cached
+    from .resolve import clusters, list_dim_pending
+    db = Path(ctx["db"])
+    if not db.exists():
+        return {"clusters": [], "pending_total": 0, "dimensions": []}
+    try:
+        tax = load_taxonomy_cached(_taxonomy_dir(ctx))
+        settings = load_settings(ctx.get("config_dir") or "config")
+        actor = ((query.get("actor") or [""])[0]) or "web"
+        items = clusters(db, tax, None, actor)
+        total = len(items)
+        cap = int(settings.get("upload_prompt_cap", 5))
+        return {"clusters": items[:cap], "more": max(0, total - cap),
+                "pending_total": total,
+                "banner": total > int(settings.get("queue_abandon_threshold", 50)),
+                "dimensions": list_dim_pending(db)[:cap]}
+    except Exception as ex:
+        return {"error": str(ex)}
+
+
 def _drawing(ctx, query) -> dict:
     """Full rows for one drawing (no caps) for lazy group expansion."""
     from .query import drawing_rows, parse_chip
@@ -423,10 +542,21 @@ def _drawing(ctx, query) -> dict:
     return res
 
 
-def _resolve_store(ctx, drawing: str, raw: list) -> tuple:
-    """Identity-resolve raw records vs previous state, write jsonl+idmap."""
+def _details_dir(ctx) -> Path:
+    if ctx.get("details_dir"):
+        return Path(ctx["details_dir"])
+    return Path(ctx["repo"]) / "details"
+
+
+def _resolve_store(ctx, drawing: str, raw: list, doc=None) -> tuple:
+    """Identity-resolve raw records vs previous state, write jsonl+idmap+details.
+
+    Returns (..., details_rel, payload): the payload feeds finalize_visuals
+    (thumbs/crops) in DXF ingest before the details file is rewritten.
+    """
     import json as _json
     from .identity import resolve
+    from .segment import build_sheet_details, write_details_file
     state_dir = Path(ctx["state_dir"])
     sj, si = state_dir / (drawing + ".jsonl"), state_dir / (drawing + ".idmap.json")
     existed = sj.exists()  # same project+filename before? then this is iteration N+1
@@ -442,7 +572,24 @@ def _resolve_store(ctx, drawing: str, raw: list) -> tuple:
                   encoding="utf-8", newline="\n")
     si.write_text(_json.dumps(new_idmap, sort_keys=True, indent=2, ensure_ascii=False) + "\n",
                   encoding="utf-8", newline="\n")
-    return resolved, new_idmap, event, fuzzy, prev, existed
+    # 7.1/7.5 detail regions, same upload — committed alongside state.
+    details_rel, payload = None, None
+    try:
+        from .semantics import load_config_dir as _lcd
+        from .attribute import load_geometry_config as _lgc
+        cfg, _ = _lcd(ctx.get("config_dir") or "config")
+        gpath = Path(ctx.get("config_dir") or "config") / "geometry.yaml"
+        try:
+            gcfg = _lgc(str(gpath) if gpath.exists() else None)
+        except Exception:
+            gcfg = {}
+        payload = build_sheet_details(drawing, resolved, cfg, gcfg, doc,
+                                      taxonomy_dir=_taxonomy_dir(ctx))
+        out = write_details_file(_details_dir(ctx), drawing, payload)
+        details_rel = _rel(ctx, out)
+    except Exception:
+        details_rel, payload = None, None
+    return resolved, new_idmap, event, fuzzy, prev, existed, details_rel, payload
 
 
 def _git_commit(ctx, paths: list[str], message: str):
@@ -453,6 +600,10 @@ def _git_commit(ctx, paths: list[str], message: str):
     rel = []
     for p in paths:
         pp = Path(p)
+        # callers mix absolute paths and repo-relative ones (details, visual
+        # rels) — resolve the latter against the repo, never the CWD.
+        if not pp.is_absolute():
+            pp = repo_p / pp
         if pp.exists():
             try:
                 rel.append(pp.resolve().relative_to(repo_p.resolve()).as_posix())
@@ -475,11 +626,27 @@ def _summarize(ctx, drawing: str, resolved: list, prev: list, existed: bool,
     from collections import Counter
     from .index import build_index
     from .query import drawing_history
-    idx = build_index(Path(ctx["repo"]), Path(ctx["db"]))
+    idx = build_index(Path(ctx["repo"]), Path(ctx["db"]),
+                      taxonomy_dir=_taxonomy_dir(ctx))
     try:
         revs = drawing_history(Path(ctx["db"]), drawing)
     except Exception:
         revs = []
+    # 8.7.3A post-upload prompt: non-modal, capped, dismissible — the upload
+    # already succeeded; this only invites the expert to spend a minute.
+    notification = {"drawing": drawing, "clusters": [], "more": 0,
+                    "pending_total": 0, "banner": False}
+    try:
+        from .taxonomy import load_settings, load_taxonomy_cached
+        from .resolve import upload_notification
+        tax = load_taxonomy_cached(_taxonomy_dir(ctx))
+        settings = load_settings(ctx.get("config_dir") or "config")
+        notification = upload_notification(
+            Path(ctx["db"]), tax, drawing, "web",
+            cap=int(settings.get("upload_prompt_cap", 5)),
+            abandon_threshold=int(settings.get("queue_abandon_threshold", 50)))
+    except Exception as ex:
+        warnings.append(f"quarantine notice skipped ({ex})")
     counts = Counter(r.get("status", "?") for r in resolved)
     prev_ids = {p.get("element_id") for p in prev if p.get("element_id")}
     live_ids = {r["element_id"] for r in resolved}
@@ -504,7 +671,7 @@ def _summarize(ctx, drawing: str, resolved: list, prev: list, existed: bool,
             "iteration_note": note, "warnings": warnings,
             "translation": event, "pdf": bool(pdf_ok), "committed": committed,
             "fuzzy": [{"element_id": f["element_id"], "confidence": f["confidence"]} for f in fuzzy],
-            "index": idx,
+            "index": idx, "notification": notification,
             "next": nxt}
 
 
@@ -529,13 +696,39 @@ def _ingest_dxf(ctx, dxf: Path) -> dict:
         warnings.append(f"DXF {ver} < R2018 \u2014 re-export as ASCII R2018+ for reliable history")
     raw = extract_state(dxf, cfg)
     if not raw:
-        warnings.append("0 extractable entities \u2014 check the file has LINE/LWPOLYLINE/ARC/CIRCLE/HATCH/TEXT/MTEXT/DIMENSION/MULTILEADER in modelspace")
-    resolved, _new_idmap, event, fuzzy, prev, existed = _resolve_store(ctx, drawing, raw)
+        warnings.append("0 extractable entities — check the file has LINE/LWPOLYLINE/ARC/CIRCLE/HATCH/TEXT/MTEXT/DIMENSION/MULTILEADER in modelspace")
+    try:
+        import ezdxf as _ez
+        _doc = _ez.readfile(str(dxf))
+    except Exception:
+        _doc = None
+    resolved, _new_idmap, event, fuzzy, prev, existed, details_rel, payload = \
+        _resolve_store(ctx, drawing, raw, _doc)
     pdf_ok = render_dxf_to_pdf(dxf, pdf_dir / (drawing + ".pdf"))
-    committed = _git_commit(ctx, [str(drawings_dir / (drawing + ".dxf")),
-                                  str(Path(ctx["state_dir"]) / (drawing + ".jsonl")),
-                                  str(Path(ctx["state_dir"]) / (drawing + ".idmap.json")),
-                                  str(pdf_dir / (drawing + ".pdf"))],
+    commit_paths = [str(drawings_dir / (drawing + ".dxf")),
+                    str(Path(ctx["state_dir"]) / (drawing + ".jsonl")),
+                    str(Path(ctx["state_dir"]) / (drawing + ".idmap.json")),
+                    str(pdf_dir / (drawing + ".pdf"))]
+    if details_rel:
+        commit_paths.append(details_rel)
+    # 7.6/8.7.2 visuals: thumbnails + evidence crops, committed with the sheet.
+    if payload is not None:
+        try:
+            from .render import finalize_visuals
+            from .segment import write_details_file
+            by_eid = {r.get("element_id"): r for r in resolved if r.get("element_id")}
+            vis = finalize_visuals(dxf, payload, by_eid,
+                                   _thumbs_dir(ctx), _crops_dir(ctx), drawing)
+            out = write_details_file(_details_dir(ctx), drawing, vis["payload"])
+            if _rel(ctx, out):
+                commit_paths.append(_rel(ctx, out))
+            for f in vis["files"]:
+                rel = _rel(ctx, f)
+                if rel:
+                    commit_paths.append(rel)
+        except Exception as ex:
+            warnings.append(f"visuals skipped ({ex})")
+    committed = _git_commit(ctx, commit_paths,
                             f"Upload {drawing} via gitail serve")
     return _summarize(ctx, drawing, resolved, prev, existed, event, fuzzy,
                       pdf_ok, committed, warnings)
@@ -551,10 +744,14 @@ def _ingest_pdf(ctx, pdf_path: Path, drawing: str) -> dict | None:
     if not raw:
         return None
     warnings = ["PDF text layer: positions are sheet coordinates (mm), not model space \u2014 DXF remains the precise source"]
-    resolved, _new_idmap, event, fuzzy, prev, existed = _resolve_store(ctx, drawing, raw)
-    committed = _git_commit(ctx, [str(pdf_path),
-                                  str(Path(ctx["state_dir"]) / (drawing + ".jsonl")),
-                                  str(Path(ctx["state_dir"]) / (drawing + ".idmap.json"))],
+    resolved, _new_idmap, event, fuzzy, prev, existed, details_rel, _payload = \
+        _resolve_store(ctx, drawing, raw)
+    commit_paths = [str(pdf_path),
+                    str(Path(ctx["state_dir"]) / (drawing + ".jsonl")),
+                    str(Path(ctx["state_dir"]) / (drawing + ".idmap.json"))]
+    if details_rel:
+        commit_paths.append(details_rel)
+    committed = _git_commit(ctx, commit_paths,
                             f"Upload {drawing} (PDF text) via gitail serve")
     return _summarize(ctx, drawing, resolved, prev, existed, event, fuzzy,
                       True, committed, warnings)
@@ -602,7 +799,7 @@ tr.del td{opacity:.6;text-decoration:line-through}
 .linkbtn{background:none;border:none;color:#111;text-decoration:underline;cursor:pointer;font-size:13px;padding:8px 4px}
 .thumbs img{height:64px;border:1px solid #ccc;border-radius:4px;margin:2px;vertical-align:middle;background:#fff}
 </style></head><body>
-<header><h2 style="margin:0">gitail — live search + upload</h2>
+<header><h2 style="margin:0">gitail — live search + upload <span id="qbadge"></span></h2>
 <div style="opacity:.75;font-size:13px">Reads <code>index.sqlite</code> directly. Uploads save into <code>drawings/&lt;project&gt;/</code>, then extract + render + reindex automatically.</div>
 <div id="repo" style="opacity:.6;font-size:12px;margin-top:4px"></div></header>
 <main>
@@ -614,6 +811,17 @@ tr.del td{opacity:.6;text-decoration:line-through}
 <button id="ubtn">Upload</button>
 </div>
 <pre id="umsg" class="hint">Pick a .dxf and Upload — it lands in the repo + search index immediately. (PNG/JPG are view-only references, never parsed.)</pre>
+<div id="unotice"></div>
+</div>
+<div class="card"><h3 style="margin-top:0">Tree search <span class="hint">— pruned root-to-match trees (click a result to expand)</span></h3>
+<div class="filters">
+<input id="tq" placeholder="capping, sill, glazing…" style="min-width:240px">
+<button id="tbtn">Search tree</button>
+</div>
+<div id="tres"></div>
+</div>
+<div class="card" id="qcard" style="display:none"><h3 style="margin-top:0">Review queue <span class="hint">— new vocabulary awaiting a human (never blocking)</span></h3>
+<div id="queue"></div>
 </div>
 <div id="chips"></div>
 <div class="filters">
@@ -799,6 +1007,7 @@ $('ubtn').addEventListener('click',async()=>{
   fd.append('project',$('unew').value.trim()||$('uproj').value);
   fd.append('file',f,f.name);
   $('umsg').textContent='Uploading…';
+  $('unotice').innerHTML='';
   const r=await fetch('/api/upload',{method:'POST',body:fd});
   const t=await r.text();
   let summary=t;
@@ -807,21 +1016,102 @@ $('ubtn').addEventListener('click',async()=>{
       summary='OK — '+j.iteration_note+' | '+j.elements+' element(s), pdf: '+(j.pdf?'yes':'FAILED')
         +(j.committed===true?' — in search index':(' — NOT INDEXED: '+j.committed))
         +((j.warnings||[]).length?' | ⚠️ '+j.warnings.join(' | '):'');
+      renderNotice(j.notification);
     }else if(r.ok){
       summary='OK — '+(j.saved||'saved')+' | '+(j.note||'')
         +(j.committed===true?' — committed':(j.committed?' — NOT COMMITTED: '+j.committed:''));
     }else{summary='FAILED '+r.status+' '+t;}
   }catch(e){summary=(r.ok?'OK ':'FAILED '+r.status+' ')+t;}
   $('umsg').textContent=summary;
-  await meta();renderChips();await search();
+  await meta();renderChips();await search();await loadQueue();
 });
-meta().then(search);
+function renderNotice(n){
+  if(!n||((!n.clusters||!n.clusters.length)&&(!n.dimensions||!n.dimensions.length))){
+    $('unotice').innerHTML=n&&n.banner?'<div class="hint">⚠️ review queue abandoned ('+n.pending_total+' clusters) — resolve from the queue below, not per-upload.</div>':'';
+    return;
+  }
+  $('unotice').innerHTML='<div class="hint">✓ '+esc(n.drawing)+' uploaded — '
+    +n.clusters.length+' new element(s) recognised that are not in the tree yet.'
+    +' You know this drawing best — assigning them now takes about a minute.</div>'
+    +n.clusters.map(c=>'<div>“'+esc(c.label)+'” → '+(c.suggestions[0]
+      ?`<button class="linkbtn" data-op="assign" data-k="${esc(c.cluster_id)}" data-t="${esc(c.suggestions[0].node)}">assign to ${esc(c.suggestions[0].node)}</button>`
+      :'')+` <button class="linkbtn" data-op="dismiss" data-k="${esc(c.cluster_id)}">remind me later</button></div>`).join('')
+    +(n.more?`<div class="hint">+ ${n.more} more in the review queue</div>`:'')
+    +((n.dimensions||[]).map(d=>`<div>dimension “${esc(d.label||d.value+'mm')}” → ${esc(d.material||'?')} [low, needs review]`
+      +` <button class="linkbtn" data-op="confirm-dim" data-k="${esc(d.uid)}">confirm</button></div>`).join(''));
+  $('unotice').querySelectorAll('button').forEach(b=>b.onclick=()=>resolveOp(
+    b.dataset.op,b.dataset.k,{target:b.dataset.t}));
+}
+$('tbtn').addEventListener('click',treeSearch);
+$('tq').addEventListener('keydown',e=>{if(e.key==='Enter')treeSearch();});
+async function treeSearch(){
+  const q=$('tq').value.trim();if(!q)return;
+  const res=await (await fetch('/api/tree-search?'+new URLSearchParams({q}))).json();
+  if(res.error){$('tres').innerHTML='<div class="hint">'+esc(res.error)+'</div>';return;}
+  let htm='';
+  if(res.query&&res.query.node)htm+=`<div class="hint">node <code>${esc(res.query.node)}</code></div>`;
+  else htm+='<div class="hint">no taxonomy match — unclassified hits only</div>';
+  (res.results||[]).forEach(r=>{
+    htm+=`<div class="card"><b>${esc(r.title)}</b> · ${esc(r.source_sheet)} [${esc(r.confidence)}]`
+      +(r.thumbnail?` <a href="/${esc(r.thumbnail)}"><img src="/${esc(r.thumbnail)}" loading="lazy" style="height:48px"></a>`:'')
+      +treeHtml(r.pruned_tree,r.detail_id)
+      +`<div class="hint">+ ${r.collapsed_counts.sibling_parts} other parts, ${r.collapsed_counts.total_classifications} classifications `
+      +`<button class="linkbtn" data-x="${esc(r.detail_id)}">expand</button></div></div>`;
+  });
+  if(res.facet_counts&&Object.keys(res.facet_counts).length)
+    htm+='<div class="hint">facets: '+Object.entries(res.facet_counts).map(([k,v])=>esc(k)+'='+v).join(', ')+'</div>';
+  (res.unclassified||[]).forEach(u=>{
+    htm+=`<div class="card"><b>Unclassified:</b> ${esc(u.detail_id)} (${esc(u.drawing)}) — ${esc((u.matches||[]).join('; '))}</div>`;
+  });
+  if(!htm)$('tres').innerHTML='<div class="hint">no matches</div>';
+  else $('tres').innerHTML=htm;
+  $('tres').querySelectorAll('button[data-x]').forEach(b=>b.onclick=async()=>{
+    const d=await (await fetch('/api/tree-search?'+new URLSearchParams({expand:b.dataset.x}))).json();
+    b.parentElement.innerHTML='<pre>'+esc(JSON.stringify(d.full_tree,null,1)).slice(0,4000)+'</pre>';
+  });
+}
+function treeHtml(nodes,detail){
+  return '<ul>'+nodes.map(n=>{
+    if(n.collapsed)return `<li class="hint">+ ${n.parts} parts, ${n.classifications} classifications</li>`;
+    return `<li>${esc(n.label)}${n.matched?' ◀':''}`+(n.children&&n.children.length?treeHtml(n.children,detail):'')+'</li>';
+  }).join('')+'</ul>';
+}
+async function loadQueue(){
+  const q=await (await fetch('/api/queue?actor=web')).json();
+  const n=q.pending_total||0;
+  $('qbadge').innerHTML=n?`<span class="badge">⚠ Unclassified (${n})</span>`:'';
+  if(!n||q.error){$('qcard').style.display='none';return;}
+  $('qcard').style.display='';
+  $('queue').innerHTML=(q.banner?'<div class="hint">⚠️ queue abandoned — work it down instead of per-upload prompts.</div>':'')
+    +((q.dimensions||[]).map(d=>`<div class="card"><b>Dimension “${esc(d.label||d.value+'mm')}” → ${esc(d.material||'?')}</b> <span class="hint">[low — vision assist, needs review]</span>`
+    +(d.crop?`<br><img src="/${esc(d.crop)}" loading="lazy" style="max-width:400px;border:1px solid #ccc">`:'')
+    +`<br><span class="hint">${(d.regions||[]).map(r=>esc(r.region_id)+':'+esc(r.measured_width)+'mm'+(r.material?' '+esc(r.material):'')).join(' · ')}</span>`
+    +`<br><button class="linkbtn" data-op="confirm-dim" data-k="${esc(d.uid)}">confirm at medium</button></div>`).join(''))
+    +(q.clusters||[]).map(c=>`<div class="card"><b>${esc(c.label)}</b> <span class="hint">[${esc(c.level_guess)}] ×${c.occurrence_count} in ${c.details.length} detail(s)</span>`
+    +(c.crop?`<br><img src="/${esc(c.crop)}" loading="lazy" style="max-width:400px;border:1px solid #ccc">`:'')
+    +'<br>'+c.suggestions.map(s=>`<button class="linkbtn" data-op="assign" data-k="${esc(c.cluster_id)}" data-t="${esc(s.node)}">${esc(s.node)} (${Math.round(s.score*100)}% — ${esc(s.why)})</button>`).join(' ')
+    +` <button class="linkbtn" data-op="ignore" data-k="${esc(c.cluster_id)}">not an element</button>`
+    +` <button class="linkbtn" data-op="dismiss" data-k="${esc(c.cluster_id)}">remind me later</button></div>`).join('')
+    +(q.more?`<div class="hint">+ ${q.more} more</div>`:'');
+  $('queue').querySelectorAll('button').forEach(b=>b.onclick=()=>resolveOp(
+    b.dataset.op,b.dataset.k,{target:b.dataset.t}));
+}
+async function resolveOp(op,key,extra){
+  const body={op,key,actor:'web',...(extra||{})};
+  const r=await fetch('/api/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const t=await r.text();
+  if(!r.ok)alert('resolve failed: '+t);
+  await search();await loadQueue();
+}
+meta().then(()=>{search();loadQueue();});
 </script></body></html>
 """
 
 
 def run(repo=".", db="index.sqlite", drawings_dir="drawings", state_dir="state",
-        pdf_dir="pdf", images_dir="images", config_dir="config", port=8000):
+        pdf_dir="pdf", images_dir="images", config_dir="config", port=8000,
+        details_dir="details", taxonomy_dir=None, thumbs_dir="thumbs",
+        crops_dir="crops"):
     # Absolute paths: the server must run from the drawings repo root, and the
     # printed repo line makes a wrong-folder start obvious immediately.
     repo_p = Path(repo).resolve()
@@ -831,7 +1121,10 @@ def run(repo=".", db="index.sqlite", drawings_dir="drawings", state_dir="state",
         return str((repo_p / pp).resolve() if not pp.is_absolute() else pp)
     ctx = {"repo": str(repo_p), "db": _abs(db), "drawings_dir": _abs(drawings_dir),
            "state_dir": _abs(state_dir), "pdf_dir": _abs(pdf_dir),
-           "images_dir": _abs(images_dir), "config_dir": str(config_dir)}
+           "images_dir": _abs(images_dir), "config_dir": str(config_dir),
+           "details_dir": _abs(details_dir),
+           "taxonomy_dir": _abs(taxonomy_dir) if taxonomy_dir else None,
+           "thumbs_dir": _abs(thumbs_dir), "crops_dir": _abs(crops_dir)}
     print(f"gitail serve: http://localhost:{port}")
     print(f"  repo: {ctx['repo']}")
     if not (repo_p / ".git").exists():
@@ -841,7 +1134,8 @@ def run(repo=".", db="index.sqlite", drawings_dir="drawings", state_dir="state",
     try:
         from .index import build_index
         if (repo_p / ".git").exists():
-            print("  index:", build_index(repo_p, Path(ctx["db"])))
+            print("  index:", build_index(repo_p, Path(ctx["db"]),
+                                          taxonomy_dir=ctx["taxonomy_dir"]))
     except Exception as ex:
         print(f"  index build failed: {ex}")
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)

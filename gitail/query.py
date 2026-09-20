@@ -138,11 +138,13 @@ def _attribution_map(con, pairs: list[tuple[str, str]]) -> dict:
     if "attribution" not in names:
         return out
     cols = ["element_id", "commit_sha", "drawing", "material", "part", "value",
-            "unit", "qualifier", "confidence", "chain", "conflict"]
+            "unit", "qualifier", "measure", "confidence", "chain", "conflict"]
     pairs = [(e, c) for e, c in pairs if e and c]
+    have = {r[1] for r in con.execute("PRAGMA table_info(attribution)").fetchall()}
+    use_cols = [c for c in cols if c in have]  # pre-measure DBs lack the column
     for i in range(0, len(pairs), 400):
         chunk = pairs[i:i + 400]
-        q = (f"SELECT {','.join(cols)} FROM attribution WHERE "
+        q = (f"SELECT {','.join(use_cols)} FROM attribution WHERE "
              + " OR ".join(["(element_id=? AND commit_sha=?)"] * len(chunk)))
         args = [x for p in chunk for x in p]
         for r in con.execute(q, args):
@@ -155,8 +157,13 @@ _CONF_RANK = {"high": 0, "medium": 1, "low": 2}
 
 
 def _attrib_satisfies(a: dict, kind: str, value: str, tolerance: float,
-                      include_low: bool, include_unattr: bool) -> bool:
-    """Does one attribution row satisfy a material/value chip (7.8)?"""
+                       include_low: bool, include_unattr: bool,
+                       measure: str | None = None) -> bool:
+    """Does one attribution row satisfy a material/value chip (7.8)?
+
+    Value criteria default to thickness measures (addendum A.5): a setdown
+    never satisfies a thickness search unless --measure selects it.
+    """
     conf_ok = (a.get("confidence") in ("high", "medium")
                or (include_low and a.get("confidence") == "low"))
     if kind == "material":
@@ -168,6 +175,8 @@ def _attrib_satisfies(a: dict, kind: str, value: str, tolerance: float,
             return False
         v = a.get("value")
         if v is None or abs(float(v) - num) > tolerance:
+            return False
+        if (a.get("measure") or "thickness") != (measure or "thickness"):
             return False
         if a.get("material") is None:  # loose unattributed number
             return bool(include_unattr)
@@ -189,10 +198,12 @@ def _best_attribution(attribs: list, chips: list, tolerance: float,
 
 
 def _chip_hit(row: dict, attribs: list, kind: str, value: str, tolerance: float,
-              include_low: bool, include_unattr: bool) -> bool:
+               include_low: bool, include_unattr: bool,
+               measure: str | None = None) -> bool:
     if kind in ("material", "value"):
         if attribs:
-            return any(_attrib_satisfies(a, kind, value, tolerance, include_low, include_unattr)
+            return any(_attrib_satisfies(a, kind, value, tolerance, include_low, include_unattr,
+                                        measure)
                        for a in attribs)
         # pre-attribution index (no rows for this element): row fields
         return _row_matches(row, kind, value)
@@ -230,11 +241,13 @@ def _attr_exists(kind: str, val: str, current_only: bool, tolerance: float,
             return "1=0", []
         lo, hi = num - tolerance, num + tolerance
         core = (f"a2.drawing={outer}.drawing AND a2.value BETWEEN ? AND ?"
-                f" AND a2.confidence IN {conf}")
+                f" AND a2.confidence IN {conf}"
+                f" AND COALESCE(a2.measure,'thickness')='thickness'")
         args = [lo, hi]
         if include_unattr:
             core = (f"a2.drawing={outer}.drawing AND ((a2.value BETWEEN ? AND ?"
-                    f" AND a2.confidence IN {conf})"
+                    f" AND a2.confidence IN {conf}"
+                    f" AND COALESCE(a2.measure,'thickness')='thickness')"
                     " OR (a2.material IS NULL AND a2.value BETWEEN ? AND ?"
                     " AND a2.chain='unattributed'))")
             args = [lo, hi, lo, hi]
@@ -377,18 +390,32 @@ def search_stacked(db: Path, chips: list[tuple[str, str]], ever: bool = False,
 
 def find(db: Path, material=None, part=None, value=None, text=None, drawing=None, project=None,
          ever: bool = False, tolerance: float = 0.0,
-         include_unattr: bool = False, include_low_confidence: bool = False) -> list[dict]:
+         include_unattr: bool = False, include_low_confidence: bool = False,
+         measure: str | None = None) -> list[dict]:
     """Element search. Material/value criteria match only BOUND attributions
     (7.8): the value must be bound to the material at medium+ confidence —
     loose numbers never match. Tolerance widens numeric matching (±mm).
+
+    Value criteria default to thickness measures (addendum A.5): a setdown
+    never satisfies a thickness search. Pass measure="setdown" (etc.) to
+    search that measure instead, or measure alone to list it.
     """
     con = _con(db)
     sel = _select(con)
     have_project = "project" in _cols(con)
     have_part = "part" in _cols(con)
+    have_measure = "measure" in [r[1] for r in
+                                 con.execute("PRAGMA table_info(attribution)").fetchall()] \
+        if "attribution" in {r[0] for r in
+                             con.execute("SELECT name FROM sqlite_master WHERE type='table'")} \
+        else False
+
+    def _m(col="a1.measure"):
+        return f"COALESCE({col},'thickness')" if have_measure else "'thickness'"
+
     q = f"SELECT {sel} FROM element_state WHERE 1=1"
     args: list = []
-    if material or value is not None:
+    if material or value is not None or measure:
         conf = _conf_list(include_low_confidence)
         conds, cargs = [], []
         if material:
@@ -410,6 +437,11 @@ def find(db: Path, material=None, part=None, value=None, text=None, drawing=None
                              " OR (a1.material IS NULL AND a1.value BETWEEN ? AND ?"
                              " AND a1.chain='unattributed'))")
                 cargs += [num - tol, num + tol, num - tol, num + tol]
+            conds.append(f"{_m()} IN ({','.join('?' for _ in (measure or 'thickness').split(','))})")
+            cargs += (measure or "thickness").split(",")
+        elif measure:
+            conds.append(f"{_m()}=?")
+            cargs.append(measure)
         q += (" AND EXISTS (SELECT 1 FROM attribution a1 WHERE a1.element_id=element_state.element_id"
               f" AND a1.commit_sha=element_state.commit_sha AND {' AND '.join(conds)})")
         args.extend(cargs)

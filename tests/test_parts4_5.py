@@ -182,17 +182,18 @@ def test_cli_extract_check(tmp_path):
     dxf = repo / "drawings" / "D-101.dxf"
     write_dxf(dxf, "3mm GLASS")
     runner = CliRunner()
-    r = runner.invoke(cli, ["extract", str(dxf), "--state-dir", str(repo / "state"),
-                            "--config-dir", str(CFG.parent)])
+    base = ["extract", str(dxf), "--state-dir", str(repo / "state"),
+            "--thumbs-dir", str(repo / "thumbs"),
+            "--crops-dir", str(repo / "crops"),
+            "--config-dir", str(CFG.parent)]
+    r = runner.invoke(cli, base)
     assert r.exit_code == 0
     # in sync now
-    r = runner.invoke(cli, ["extract", str(dxf), "--state-dir", str(repo / "state"),
-                            "--config-dir", str(CFG.parent), "--check"])
+    r = runner.invoke(cli, base + ["--check"])
     assert r.exit_code == 0
     # modify without extract -> check fails
     write_dxf(dxf, "5mm GLASS")
-    r = runner.invoke(cli, ["extract", str(dxf), "--state-dir", str(repo / "state"),
-                            "--config-dir", str(CFG.parent), "--check"])
+    r = runner.invoke(cli, base + ["--check"])
     assert r.exit_code == 1
 
 

@@ -1,0 +1,255 @@
+# Seed Level 1 — Components (brief 8.2). Exactly these; everything else
+# arrives by registration. id is permanent; rename via label only.
+nodes:
+- id: component.external_wall
+  level: component
+  label: External Wall
+  slug: external_wall
+  parents: []
+  synonyms: [facade wall, envelope wall]
+  definition: Wall forming part of the building envelope.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: component.internal_wall
+  level: component
+  label: Internal Wall
+  slug: internal_wall
+  parents: []
+  synonyms: [partition, internal partition]
+  definition: Non-envelope wall dividing interior space.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: component.window
+  level: component
+  label: Window
+  slug: window
+  parents: []
+  synonyms: [windows, glazing]
+  definition: Glazed opening for light, air and outlook.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: component.door
+  level: component
+  label: Door
+  slug: door
+  parents: []
+  synonyms: [doors, doorway]
+  definition: Operable barrier controlling passage between spaces.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: component.curtain_wall
+  level: component
+  label: Curtain Wall
+  slug: curtain_wall
+  parents: []
+  synonyms: [curtainwall, glazed facade]
+  definition: Non-structural glazed facade hung from the frame.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: component.facade_cladding
+  level: component
+  label: Facade Cladding
+  slug: facade_cladding
+  parents: []
+  synonyms: [cladding, rainscreen]
+  definition: External rainscreen skin over the wall build-up.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: component.roof
+  level: component
+  label: Roof
+  slug: roof
+  parents: []
+  synonyms: [roofing]
+  definition: Weatherproof covering over the top of the building.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: component.floor
+  level: component
+  label: Floor
+  slug: floor
+  parents: []
+  synonyms: [floors]
+  definition: Horizontal structure and finish walked upon.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: component.ceiling
+  level: component
+  label: Ceiling
+  slug: ceiling
+  parents: []
+  synonyms: [ceilings, soffit lining]
+  definition: Lining concealing structure and services overhead.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: component.stair
+  level: component
+  label: Stair
+  slug: stair
+  parents: []
+  synonyms: [stairs, staircase]
+  definition: Stepped circulation between levels.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: component.balustrade
+  level: component
+  label: Balustrade
+  slug: balustrade
+  parents: []
+  synonyms: [balustrading, guardrail, guard rail]
+  definition: Guard barrier at edges, stairs and balconies.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: component.waterproofing
+  level: component
+  label: Waterproofing
+  slug: waterproofing
+  parents: []
+  synonyms: [tanking, membrane system]
+  definition: Membrane system excluding water from structure.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: component.movement_joint
+  level: component
+  label: Movement Joint
+  slug: movement_joint
+  parents: []
+  synonyms: [expansion joint, control joint]
+  definition: Planned gap absorbing thermal and structural movement.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: component.threshold
+  level: component
+  label: Threshold
+  slug: threshold
+  parents: []
+  synonyms: [door threshold]
+  definition: Transition at a doorway between inside and out.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: component.parapet
+  level: component
+  label: Parapet
+  slug: parapet
+  parents: []
+  synonyms: []
+  definition: Wall projecting above a roof or balcony edge.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: component.soffit
+  level: component
+  label: Soffit
+  slug: soffit
+  parents: []
+  synonyms: [eaves lining]
+  definition: Exposed underside of a slab, eave or stair.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: component.skylight
+  level: component
+  label: Skylight
+  slug: skylight
+  parents: []
+  synonyms: [roof window, roof light]
+  definition: Glazed opening in a roof admitting daylight.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: component.substructure
+  level: component
+  label: Substructure
+  slug: substructure
+  parents: []
+  synonyms: [foundations, footings]
+  definition: Footings, slabs and below-ground works.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: component.services_penetration
+  level: component
+  label: Services Penetration
+  slug: services_penetration
+  parents: []
+  synonyms: [service penetration, penetration]
+  definition: Sealed passage of services through construction.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: component.joinery_fitout
+  level: component
+  label: Joinery Fitout
+  slug: joinery_fitout
+  parents: []
+  synonyms: [joinery, fitout, cabinetry]
+  definition: Fixed interior woodwork and cabinetry.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: component.external_works
+  level: component
+  label: External Works
+  slug: external_works
+  parents: []
+  synonyms: [landscape, civil works]
+  definition: Paving, drainage and landscape construction.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null

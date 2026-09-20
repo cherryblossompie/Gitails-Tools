@@ -1,0 +1,27 @@
+# Taxonomy loader settings (brief C1 config/taxonomy.yaml).
+# Thresholds live here, not in code — the firm tunes them, not developers.
+
+# Registration duplicate check (8.6): a proposal whose label/synonyms match an
+# existing node's label/synonyms above this normalised similarity is BLOCKED
+# with the existing match offered ("Did you mean ...?").
+similarity_block_threshold: 0.75
+
+# Quarantine clustering (8.7): unresolved records group by normalised string
+# similarity at or above this, with a matching level guess.
+cluster_similarity_threshold: 0.85
+
+# Post-upload prompt cap (8.7.3A): at most this many clusters per upload.
+upload_prompt_cap: 5
+
+# Pending-cluster count above which post-upload prompts stop and the
+# queue-abandoned banner appears instead (8.7.3 anti-nag).
+queue_abandon_threshold: 50
+
+# Digest (8.7.3C): occurrences at/above this in one cluster flag high-impact.
+digest_min_occurrences: 10
+
+# Optional auto-promotion (8.7.6). OFF by default; restricted to value-level
+# nodes under free_text attributes at 10+ occurrences across 3+ sheets.
+auto_promote: false
+auto_promote_min_occurrences: 10
+auto_promote_min_sheets: 3

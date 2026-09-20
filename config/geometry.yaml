@@ -23,3 +23,22 @@ conflict_tolerance: 1.0
 
 # Thickness query default tolerance (mm) when --tolerance is not given.
 query_default_tolerance: 0.0
+
+# Chain A2 extension-line tracing (addendum B.2/B.5).
+# Extend each extension-line ray past its far endpoint by this (mm) to find
+# the first struck geometry edge.
+extension_probe_mm: 3.0
+
+# Two lines count as parallel (extension vs dimension line) within this (deg).
+extension_parallel_tolerance_deg: 2.0
+
+# Cluster exploded-dimension furniture (dim line + label + extension lines)
+# within this radius (mm).
+dimension_group_cluster_mm: 15.0
+
+# Chain D candidate regions: every region within this of the dimension (mm).
+chain_d_candidate_radius_mm: 60.0
+
+# Chain D master switch. False => unresolvable dimensions stay unattributed
+# and no AI call is ever made (test 107).
+chain_d_enabled: true

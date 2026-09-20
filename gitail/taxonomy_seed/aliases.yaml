@@ -1,0 +1,3 @@
+# Deprecated node id -> current node id. Merges rewrite references; the loser
+# is never deleted while drawings may reference it.
+aliases: {}

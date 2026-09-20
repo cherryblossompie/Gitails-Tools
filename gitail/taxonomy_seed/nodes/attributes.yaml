@@ -1,0 +1,264 @@
+# Seed Level 3 — Attributes (brief 8.4 + addendum A.5). A shared vocabulary
+# applied to any part, not defined per-part. Only attributes resolved by
+# attribution attach to a drawing; unbound attributes produce no leaf.
+# Measure attributes (setdown/fall): a thickness search must never return a
+# setdown, and a 50mm setdown beside a 200mm slab records both distinctly.
+nodes:
+- id: attr.material
+  level: attribute
+  label: Material
+  slug: material
+  parents: []
+  synonyms: [substance]
+  definition: What the part is made of.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+  value_type: enum
+  enum_members: [glass, plywood, steel, insulation, concrete, timber, plasterboard, aluminium, tile, quirk]
+- id: attr.thickness
+  level: attribute
+  label: Thickness
+  slug: thickness
+  parents: []
+  synonyms: [thick, thk]
+  definition: Through-thickness of the part in millimetres.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+  value_type: numeric
+  unit: mm
+- id: attr.profile
+  level: attribute
+  label: Profile
+  slug: profile
+  parents: []
+  synonyms: [section, extrusion]
+  definition: Structural section type and dimensions, e.g. SHS 75x50.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+  value_type: structured
+- id: attr.dimension
+  level: attribute
+  label: Dimension
+  slug: dimension
+  parents: []
+  synonyms: [size, gap, setback, overlap]
+  definition: Non-thickness dimension in millimetres.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+  value_type: numeric
+  unit: mm
+- id: attr.finish
+  level: attribute
+  label: Finish
+  slug: finish
+  parents: []
+  synonyms: [coating, surface finish]
+  definition: Applied surface treatment of the part.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+  value_type: enum
+  enum_members: [powdercoat, anodised, painted, galvanised, pvd, oiled, polished, mill]
+- id: attr.colour
+  level: attribute
+  label: Colour
+  slug: colour
+  parents: []
+  synonyms: [color]
+  definition: Colour of the part, free text with optional code.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+  value_type: free_text
+- id: attr.fixing_method
+  level: attribute
+  label: Fixing Method
+  slug: fixing_method
+  parents: []
+  synonyms: [fixing, attachment]
+  definition: How the part is fixed in place.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+  value_type: enum
+  enum_members: [mechanical, adhesive, welded, clipped, structural_silicone, friction, cast_in]
+- id: attr.fire_rating
+  level: attribute
+  label: Fire Rating
+  slug: fire_rating
+  parents: []
+  synonyms: [frl, fire resistance]
+  definition: Fire resistance level or minutes.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+  value_type: structured
+- id: attr.acoustic_rating
+  level: attribute
+  label: Acoustic Rating
+  slug: acoustic_rating
+  parents: []
+  synonyms: [rw, stc, sound rating]
+  definition: Weighted sound reduction index.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+  value_type: structured
+- id: attr.thermal
+  level: attribute
+  label: Thermal
+  slug: thermal
+  parents: []
+  synonyms: [r-value, u-value, insulation value]
+  definition: Thermal resistance or transmittance.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+  value_type: structured
+- id: attr.waterproofing_class
+  level: attribute
+  label: Waterproofing Class
+  slug: waterproofing_class
+  parents: []
+  synonyms: [waterproof class]
+  definition: Waterproofing class per the applicable standard.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+  value_type: enum
+  enum_members: []
+- id: attr.tolerance
+  level: attribute
+  label: Tolerance
+  slug: tolerance
+  parents: []
+  synonyms: [allowable deviation]
+  definition: Permitted construction deviation in millimetres.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+  value_type: numeric
+  unit: mm
+- id: attr.manufacturer
+  level: attribute
+  label: Manufacturer
+  slug: manufacturer
+  parents: []
+  synonyms: [maker, supplier]
+  definition: Maker of the part or product.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+  value_type: free_text
+- id: attr.product_code
+  level: attribute
+  label: Product Code
+  slug: product_code
+  parents: []
+  synonyms: [model, product id]
+  definition: Manufacturer product code.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+  value_type: free_text
+- id: attr.standard_reference
+  level: attribute
+  label: Standard Reference
+  slug: standard_reference
+  parents: []
+  synonyms: [standard, code reference]
+  definition: Referenced standard, e.g. AS 1288.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+  value_type: free_text
+- id: attr.qualifier
+  level: attribute
+  label: Qualifier
+  slug: qualifier
+  parents: []
+  synonyms: []
+  definition: Status of the value — nominal, TBC, varies, min, max, typical or indeterminate.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+  value_type: enum
+  enum_members: [nominal, tbc, varies, min, max, typical, indeterminate]
+- id: attr.setdown
+  level: attribute
+  label: Setdown
+  slug: setdown
+  parents: []
+  synonyms: [set down, slab setdown]
+  definition: Lowered slab zone depth in millimetres — a measure, never a thickness.
+  status: approved
+  created_by: seed
+  created_at: '2026-09-19'
+  drawing_count: 0
+  deprecated_by: null
+  value_type: numeric
+  unit: mm
+- id: attr.fall
+  level: attribute
+  label: Fall
+  slug: fall
+  parents: []
+  synonyms: [falls, grade]
+  definition: Designed drainage slope value (mm or ratio) — a measure, never a thickness.
+  status: approved
+  created_by: seed
+  created_at: '2026-09-19'
+  drawing_count: 0
+  deprecated_by: null
+  value_type: numeric
+  unit: mm
+- id: attr.setback
+  level: attribute
+  label: Setback
+  slug: setback
+  parents: []
+  synonyms: [set back, offset]
+  definition: Setback distance in millimetres — a measure, never a thickness.
+  status: approved
+  created_by: seed
+  created_at: '2026-09-19'
+  drawing_count: 0
+  deprecated_by: null
+  value_type: numeric
+  unit: mm

@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS attribution (
   value          REAL,
   unit           TEXT,
   qualifier      TEXT,
+  measure        TEXT DEFAULT 'thickness',
   confidence     TEXT,
   chain          TEXT,
   conflict       INTEGER,
@@ -67,6 +68,61 @@ CREATE TABLE IF NOT EXISTS attribution (
 CREATE INDEX IF NOT EXISTS idx_attr_matval ON attribution(material, value);
 CREATE INDEX IF NOT EXISTS idx_attr_draw ON attribution(drawing);
 CREATE INDEX IF NOT EXISTS idx_attr_conf ON attribution(confidence);
+CREATE INDEX IF NOT EXISTS idx_attr_measure ON attribution(measure);
+"""
+MIGRATE_ATTR_MEASURE = "ALTER TABLE attribution ADD COLUMN measure TEXT DEFAULT 'thickness'"
+MIGRATE_QUAR_MEASURE = "ALTER TABLE quarantine ADD COLUMN measure TEXT DEFAULT 'thickness'"
+
+# Addendum B.3 — Chain D review ledger. One row per (drawing, element, value),
+# stable across commits: a revision changing the value re-opens review, while
+# reindexing the same state collides onto the existing row (status kept).
+DIM_REVIEW_SCHEMA = """
+CREATE TABLE IF NOT EXISTS dim_review (
+  uid            TEXT PRIMARY KEY,
+  drawing        TEXT,
+  project        TEXT,
+  detail_id      TEXT,
+  element_id     TEXT,
+  value          REAL,
+  unit           TEXT,
+  label          TEXT,
+  anchor         TEXT,
+  regions        TEXT,
+  crop           TEXT,
+  material       TEXT,
+  region_id      TEXT,
+  chain          TEXT,
+  confidence     TEXT,
+  status         TEXT DEFAULT 'pending',
+  last_seen_commit TEXT,
+  updated_at     TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_dimrev_drawing ON dim_review(drawing);
+CREATE INDEX IF NOT EXISTS idx_dimrev_status ON dim_review(status);
+"""
+
+DETAIL_SCHEMA = """
+CREATE TABLE IF NOT EXISTS detail (
+  detail_id      TEXT,
+  commit_sha     TEXT,
+  commit_date    TEXT,
+  author         TEXT,
+  commit_message TEXT,
+  drawing        TEXT,
+  project        TEXT,
+  detail_tag     TEXT,
+  title          TEXT,
+  scale          TEXT,
+  segmentation   TEXT,
+  entity_count   INTEGER,
+  text_blob      TEXT,
+  depends_on     TEXT,
+  wet_area       INTEGER,
+  record         TEXT,
+  PRIMARY KEY (detail_id, commit_sha)
+);
+CREATE INDEX IF NOT EXISTS idx_detail_drawing ON detail(drawing);
+CREATE INDEX IF NOT EXISTS idx_detail_tag ON detail(detail_tag);
 """
 
 
@@ -83,9 +139,12 @@ def _drawing_and_project(state_path: str, state_dir: str = "state") -> tuple[str
 
 
 def _git(repo: Path, *args: str) -> str:
+    # Decode as UTF-8 explicitly: state jsonl carries raw annotation strings
+    # (em-dashes, diameter symbols), and the Windows locale codec (cp950)
+    # cannot decode them — text=True would crash on any non-ASCII drawing.
     r = subprocess.run(["git", "-C", str(repo), *args],
-                       capture_output=True, text=True, check=True)
-    return r.stdout
+                       capture_output=True, check=True)
+    return r.stdout.decode("utf-8", errors="replace")
 
 
 def _commits(repo: Path) -> list[dict]:
@@ -162,13 +221,18 @@ def _default_configs():
 
 def build_index(repo: Path, db_path: Path, state_dir: str = "state",
                 materials_cfg: dict | None = None, geometry_cfg: dict | None = None,
-                drawings_dir: str = "drawings") -> dict:
+                drawings_dir: str = "drawings", details_dir: str = "details",
+                taxonomy_dir: str | None = None) -> dict:
+    from .resolve import QUARANTINE_SCHEMA
     repo = Path(repo)
     db_path = Path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(str(db_path))
     con.executescript(SCHEMA)
     con.executescript(ATTRIBUTION_SCHEMA)
+    con.executescript(DETAIL_SCHEMA)
+    con.executescript(QUARANTINE_SCHEMA)
+    con.executescript(DIM_REVIEW_SCHEMA)
     try:
         con.execute(MIGRATE_PROJECT)
     except sqlite3.OperationalError:
@@ -184,6 +248,15 @@ def build_index(repo: Path, db_path: Path, state_dir: str = "state",
         con.execute("DELETE FROM indexed_commits")
     con.execute(IDX_PART)
     con.executescript(ATTRIBUTION_SCHEMA)
+    try:
+        con.execute(MIGRATE_ATTR_MEASURE)
+    except sqlite3.OperationalError:
+        pass  # column already exists on re-run
+    con.execute("CREATE INDEX IF NOT EXISTS idx_attr_measure ON attribution(measure)")
+    try:
+        con.execute(MIGRATE_QUAR_MEASURE)
+    except sqlite3.OperationalError:
+        pass  # column already exists, or table fresh with it already
     if materials_cfg is None or geometry_cfg is None:
         _mcfg, _gcfg = _default_configs()
         materials_cfg = _mcfg if materials_cfg is None else materials_cfg
@@ -195,6 +268,8 @@ def build_index(repo: Path, db_path: Path, state_dir: str = "state",
     if live:
         con.execute(f"DELETE FROM element_state WHERE commit_sha NOT IN ({','.join('?' for _ in live)})", tuple(live))
         con.execute(f"DELETE FROM attribution WHERE commit_sha NOT IN ({','.join('?' for _ in live)})", tuple(live))
+        con.execute(f"DELETE FROM detail WHERE commit_sha NOT IN ({','.join('?' for _ in live)})", tuple(live))
+        con.execute(f"DELETE FROM quarantine WHERE commit_sha NOT IN ({','.join('?' for _ in live)})", tuple(live))
         con.execute(f"DELETE FROM indexed_commits WHERE commit_sha NOT IN ({','.join('?' for _ in live)})", tuple(live))
     # previous snapshot per drawing for status diff (need full chain even if
     # some commits were already indexed, so walk all, insert only new)
@@ -274,6 +349,8 @@ def build_index(repo: Path, db_path: Path, state_dir: str = "state",
         con.execute("INSERT OR REPLACE INTO indexed_commits (commit_sha) VALUES (?)", (sha,))
         _index_attributions(con, repo, sha, c, cur_by_drawing, materials_cfg, geometry_cfg,
                             state_dir, drawings_dir)
+        _index_details(con, repo, sha, c, cur_by_drawing, materials_cfg, geometry_cfg,
+                       drawings_dir, details_dir, taxonomy_dir)
         prev_by_drawing = cur_by_drawing
         processed += 1
     # backfill: commits indexed before the attribution table existed
@@ -291,10 +368,209 @@ def build_index(repo: Path, db_path: Path, state_dir: str = "state",
             cur_by_drawing[drawing] = {r.get("element_id"): r for r in rows if r.get("element_id")}
         _index_attributions(con, repo, sha, cinfo, cur_by_drawing, materials_cfg, geometry_cfg,
                             state_dir, drawings_dir)
+    # backfill: commits indexed before the detail table existed
+    missing_d = [r[0] for r in con.execute(
+        "SELECT DISTINCT commit_sha FROM element_state WHERE commit_sha NOT IN "
+        "(SELECT DISTINCT commit_sha FROM detail)")]
+    for sha in missing_d:
+        cinfo = next((c for c in commits if c["sha"] == sha), None)
+        if cinfo is None:
+            continue
+        cur_by_drawing = {}
+        for f in _state_files_at(repo, sha, state_dir):
+            drawing, _proj = _drawing_and_project(f, state_dir)
+            rows = _read_blob(repo, sha, f)
+            cur_by_drawing[drawing] = {r.get("element_id"): r for r in rows if r.get("element_id")}
+        _index_details(con, repo, sha, cinfo, cur_by_drawing, materials_cfg, geometry_cfg,
+                       drawings_dir, details_dir, taxonomy_dir)
+    # backfill: commits indexed before quarantine existed (old rows predate
+    # candidates; live-build them — statuses of existing rows are preserved).
+    missing_q = [r[0] for r in con.execute(
+        "SELECT DISTINCT commit_sha FROM element_state WHERE commit_sha NOT IN "
+        "(SELECT DISTINCT commit_sha FROM quarantine)")]
+    for sha in missing_q:
+        cinfo = next((c for c in commits if c["sha"] == sha), None)
+        if cinfo is None:
+            continue
+        cur_by_drawing = {}
+        for f in _state_files_at(repo, sha, state_dir):
+            drawing, _proj = _drawing_and_project(f, state_dir)
+            rows = _read_blob(repo, sha, f)
+            cur_by_drawing[drawing] = {r.get("element_id"): r for r in rows if r.get("element_id")}
+        _index_quarantine_only(con, repo, sha, cinfo, cur_by_drawing,
+                               materials_cfg, geometry_cfg,
+                               drawings_dir, details_dir, taxonomy_dir)
     con.commit()
     total = con.execute("SELECT COUNT(*) FROM element_state").fetchone()[0]
     con.close()
     return {"commits_processed": processed, "rows_inserted": inserted, "total_rows": total}
+
+
+def _details_blob(repo: Path, sha: str, drawing: str, details_dir: str = "details") -> dict | None:
+    """Committed details/<drawing>.json at a commit (None when absent/invalid).
+
+    The committed file wins over live segmentation: future human facet edits
+    (7.7) must survive reindexing. Validated lightly — wrong-drawing or
+    detail-less payloads fall back to live segmentation.
+    """
+    try:
+        r = subprocess.run(["git", "-C", str(repo), "show", f"{sha}:{details_dir}/{drawing}.json"],
+                           capture_output=True, check=True)
+        payload = json.loads(r.stdout.decode("utf-8"))
+    except (subprocess.CalledProcessError, ValueError, UnicodeDecodeError):
+        return None
+    if not isinstance(payload, dict) or payload.get("drawing") != drawing:
+        return None
+    if not isinstance(payload.get("details"), list):
+        return None
+    return payload
+
+
+def _insert_detail_rows(con, sha: str, c: dict, drawing: str, project: str, payload: dict) -> int:
+    n = 0
+    for d in payload.get("details", []):
+        if not isinstance(d, dict) or not d.get("detail_id"):
+            continue
+        depends = d.get("depends_on") or []
+        try:
+            con.execute(
+                "INSERT OR REPLACE INTO detail "
+                "(detail_id,commit_sha,commit_date,author,commit_message,drawing,project,"
+                " detail_tag,title,scale,segmentation,entity_count,text_blob,depends_on,"
+                " wet_area,record)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (d.get("detail_id"), sha, c.get("date"), c.get("author"), c.get("message"),
+                 drawing, project, d.get("detail_tag"), d.get("title"), d.get("scale"),
+                 d.get("segmentation") or payload.get("segmentation"),
+                 d.get("entity_count", len(d.get("element_ids") or [])),
+                 d.get("text_blob"), json.dumps(depends, ensure_ascii=False),
+                 1 if (d.get("performance") or {}).get("wet_area") else 0,
+                 json.dumps(d, sort_keys=True, ensure_ascii=False)))
+            n += 1
+        except Exception:
+            continue
+    return n
+
+
+def _crop_exists(repo: Path, sha: str, relpath: str | None) -> str | None:
+    """Committed crop/thumbnail check: a path recorded at extract time may be
+    absent at this commit (older history). Returns the path or None."""
+    import subprocess
+    if not relpath:
+        return None
+    try:
+        subprocess.run(["git", "-C", str(repo), "cat-file", "-e",
+                        f"{sha}:{relpath}"],
+                       check=True, capture_output=True)
+        return relpath
+    except (subprocess.CalledProcessError, OSError):
+        return None
+
+
+def _index_details(con, repo: Path, sha: str, c: dict,
+                   cur_by_drawing: dict, materials_cfg: dict, geometry_cfg: dict,
+                   drawings_dir: str, details_dir: str,
+                   taxonomy_dir: str | None = None) -> int:
+    """7.1/7.5: one detail-region row per drawing per commit.
+
+    Prefers the committed details/*.json (human-editable facets survive);
+    otherwise segments the committed state rows live (+ DXF blob for Chain A/C
+    attribution when present, leader-only when absent). Quarantine candidates
+    from either source become occurrence rows (8.7).
+    """
+    from .resolve import insert_occurrences
+    from .segment import build_sheet_details
+    n = 0
+    for drawing, cur in cur_by_drawing.items():
+        project = drawing.split("/")[0] if "/" in drawing else ""
+        committed = _details_blob(repo, sha, drawing, details_dir)
+        payload = None
+        if committed is not None:
+            n += _insert_detail_rows(con, sha, c, drawing, project, committed)
+            payload = committed
+        else:
+            doc = None
+            blob = _dxf_blob(repo, sha, drawing, drawings_dir)
+            if blob:
+                try:
+                    import ezdxf
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(suffix=".dxf", delete=False) as f:
+                        f.write(blob)
+                        tmp = f.name
+                    try:
+                        doc = ezdxf.readfile(tmp)
+                    finally:
+                        try:
+                            Path(tmp).unlink()
+                        except OSError:
+                            pass
+                except Exception:
+                    doc = None
+            try:
+                payload = build_sheet_details(drawing, list(cur.values()), materials_cfg,
+                                              geometry_cfg, doc,
+                                              taxonomy_dir=taxonomy_dir)
+            except Exception:
+                continue
+            n += _insert_detail_rows(con, sha, c, drawing, project, payload)
+        if payload is not None:
+            # verify crops against this commit (older history predates them)
+            for cand in payload.get("quarantine_candidates", []) or []:
+                cand["crop"] = _crop_exists(repo, sha, cand.get("crop"))
+            try:
+                insert_occurrences(con, payload, drawing, project, sha, c.get("date"))
+            except Exception:
+                continue
+    return n
+
+
+def _index_quarantine_only(con, repo: Path, sha: str, c: dict,
+                           cur_by_drawing: dict, materials_cfg: dict,
+                           geometry_cfg: dict, drawings_dir: str,
+                           details_dir: str,
+                           taxonomy_dir: str | None = None) -> int:
+    """Quarantine backfill for commits indexed before candidates existed:
+    same payload resolution as _index_details, occurrences only."""
+    from .resolve import insert_occurrences
+    from .segment import build_sheet_details
+    n = 0
+    for drawing, cur in cur_by_drawing.items():
+        project = drawing.split("/")[0] if "/" in drawing else ""
+        payload = _details_blob(repo, sha, drawing, details_dir)
+        if payload is None:
+            try:
+                payload = build_sheet_details(drawing, list(cur.values()),
+                                              materials_cfg, geometry_cfg, None,
+                                              taxonomy_dir=taxonomy_dir)
+            except Exception:
+                continue
+        for cand in payload.get("quarantine_candidates", []) or []:
+            cand["crop"] = _crop_exists(repo, sha, cand.get("crop"))
+        try:
+            n += insert_occurrences(con, payload, drawing, project, sha, c.get("date"))
+        except Exception:
+            continue
+    return n
+
+
+def _confirmed_dim_overrides(con) -> dict:
+    """dim_review confirmations keyed (element_id, value): a confirmed Chain D
+    attribution promotes to medium/human wherever it re-indexes."""
+    try:
+        rows = con.execute(
+            "SELECT element_id, value, material, region_id FROM dim_review "
+            "WHERE status='confirmed'").fetchall()
+    except sqlite3.OperationalError:
+        return {}
+    out = {}
+    for r in rows:
+        try:
+            out[(r[0], round(float(r[1]), 2))] = {
+                "material": r[2], "region_id": r[3]}
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 def _index_attributions(con, repo: Path, sha: str, c: dict,
@@ -305,9 +581,12 @@ def _index_attributions(con, repo: Path, sha: str, c: dict,
     Committed state rows already carry element_ids; the DXF blob at the same
     commit supplies hatch boundaries and leader endpoints for Chains A/C.
     Without a DXF blob, leader-text (Chain B) attributions still index.
+    Chain D runs disabled here (no adapter at index time): unresolvable
+    dimensions land in dim_review as pending rows for the panel.
     """
-    from .attribute import analyze_records
+    from .attribute import analyze_records, dim_review_uid
     n = 0
+    confirmed = _confirmed_dim_overrides(con)
     for drawing, cur in cur_by_drawing.items():
         project = drawing.split("/")[0] if "/" in drawing else ""
         doc = None
@@ -329,21 +608,35 @@ def _index_attributions(con, repo: Path, sha: str, c: dict,
             except Exception:
                 doc = None
         try:
-            summary = analyze_records(list(cur.values()), doc, materials_cfg, geometry_cfg)
+            summary = analyze_records(list(cur.values()), doc, materials_cfg, geometry_cfg,
+                                      drawing=drawing)
         except Exception:
             continue
         for a in summary.get("attributions", []):
-            if not a.get("element_id") or not a.get("material"):
+            # Measure-only facts (setdown/fall, no material word) index
+            # under their measure (addendum A.5, test 84).
+            if not a.get("element_id") or (not a.get("material")
+                    and a.get("value") is None):
                 continue
+            conf, chain = a.get("confidence"), a.get("attribution_chain")
+            try:
+                key = (a.get("element_id"), round(float(a.get("value")), 2)) \
+                    if a.get("value") is not None else None
+            except (TypeError, ValueError):
+                key = None
+            ov = confirmed.get(key) if key else None
+            if ov is not None and (chain or "").startswith("vision"):
+                conf, chain = "medium", "vision+human"
             try:
                 con.execute(
                     "INSERT OR REPLACE INTO attribution "
                     "(element_id,commit_sha,drawing,project,material,part,value,unit,"
-                    " qualifier,confidence,chain,conflict)"
-                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    " qualifier,measure,confidence,chain,conflict)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (a.get("element_id"), sha, drawing, project,
                      a.get("material"), a.get("part"), a.get("value"), a.get("unit"),
-                     a.get("qualifier"), a.get("confidence"), a.get("attribution_chain"),
+                     a.get("qualifier"), a.get("measure") or "thickness",
+                     conf, chain,
                      1 if a.get("conflict") else 0))
                 n += 1
             except Exception:
@@ -355,11 +648,35 @@ def _index_attributions(con, repo: Path, sha: str, c: dict,
                 con.execute(
                     "INSERT OR REPLACE INTO attribution "
                     "(element_id,commit_sha,drawing,project,material,part,value,unit,"
-                    " qualifier,confidence,chain,conflict)"
-                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    " qualifier,measure,confidence,chain,conflict)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (u.get("element_id"), sha, drawing, project,
                      None, None, u.get("raw_value"), u.get("unit"),
-                     None, None, "unattributed", 0))
+                     None, "thickness", None, "unattributed", 0))
+                n += 1
+            except Exception:
+                continue
+        for rv in summary.get("dim_review", []) or []:
+            uid = rv.get("uid") or dim_review_uid(
+                drawing, rv.get("element_id"), rv.get("value") or 0)
+            try:
+                import json as _json
+                crop = _crop_exists(repo, sha, rv.get("crop"))
+                con.execute(
+                    "INSERT INTO dim_review (uid,drawing,project,detail_id,"
+                    " element_id,value,unit,label,anchor,regions,crop,material,"
+                    " region_id,chain,confidence,status,last_seen_commit)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                    " ON CONFLICT(uid) DO UPDATE SET last_seen_commit=excluded.last_seen_commit,"
+                    " crop=COALESCE(excluded.crop, dim_review.crop)",
+                    (uid, drawing, project, rv.get("detail_id"),
+                     rv.get("element_id"), rv.get("value"), rv.get("unit"),
+                     rv.get("label"),
+                     _json.dumps(rv.get("anchor") or []),
+                     _json.dumps(rv.get("regions") or []),
+                     crop, rv.get("material"), rv.get("region_id"),
+                     rv.get("chain", "vision"), rv.get("confidence", "low"),
+                     "pending", sha))
                 n += 1
             except Exception:
                 continue

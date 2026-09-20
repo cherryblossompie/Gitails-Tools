@@ -1,0 +1,14 @@
+# AI adapter (Part 14 + addendum C). Geometry measures, AI adjudicates,
+# humans confirm. With enabled: false the system loses recall on messy
+# drawings, never correctness — every AI path has a geometric fallback.
+
+enabled: false
+
+# Backend adapter name. Only "disabled" ships in this repo; firm-specific
+# adapters register here and implement gitail.ai.Adapter.
+backend: disabled
+
+# Hard cap: group_text_lines / attribute_dimension calls per index run.
+# 0 means no cap; the geometric paths run first regardless, so the adapter
+# only ever sees the residue geometry could not settle.
+max_calls_per_run: 200

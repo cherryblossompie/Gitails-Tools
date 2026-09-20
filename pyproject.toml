@@ -28,7 +28,7 @@ where = ["."]
 include = ["gitail*"]
 
 [tool.setuptools.package-data]
-gitail = ["config/*.yaml"]
+gitail = ["config/*.yaml", "taxonomy_seed/*.yaml", "taxonomy_seed/nodes/*.yaml", "taxonomy_seed/nodes/values/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

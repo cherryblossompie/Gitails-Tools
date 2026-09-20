@@ -1,0 +1,1791 @@
+# Seed Level 2 — Parts (brief 8.3). A part under several components is ONE
+# node with multiple parents — never duplicated. Sorted by id.
+nodes:
+- id: part.access_panel
+  level: part
+  label: Access Panel
+  slug: access_panel
+  parents: [component.floor, component.ceiling, component.soffit]
+  synonyms: [access hatch, inspection hatch]
+  definition: Removable panel giving access to concealed services.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.acoustic_isolation
+  level: part
+  label: Acoustic Isolation
+  slug: acoustic_isolation
+  parents: [component.stair]
+  synonyms: [acoustic break]
+  definition: Resilient break isolating stair structure-borne sound.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.acoustic_layer
+  level: part
+  label: Acoustic Layer
+  slug: acoustic_layer
+  parents: [component.internal_wall, component.floor, component.ceiling]
+  synonyms: [acoustic insulation, sound insulation]
+  definition: Layer reducing airborne or impact sound transfer.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.acoustic_wrap
+  level: part
+  label: Acoustic Wrap
+  slug: acoustic_wrap
+  parents: [component.services_penetration]
+  synonyms: [lagging, acoustic lagging]
+  definition: Wrapping quietening pipework through a penetration.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.air_barrier
+  level: part
+  label: Air Barrier
+  slug: air_barrier
+  parents: [component.external_wall]
+  synonyms: [airtight layer, airtight membrane]
+  definition: Continuous layer limiting air leakage through the wall.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.anchor
+  level: part
+  label: Anchor
+  slug: anchor
+  parents: [component.curtain_wall]
+  synonyms: [anchor bolt, fixing anchor]
+  definition: Cast-in or fixed point tying the facade to structure.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.angle_fillet
+  level: part
+  label: Angle Fillet
+  slug: angle_fillet
+  parents: [component.roof, component.waterproofing]
+  synonyms: [fillet]
+  definition: Triangular fillet easing membrane over an internal angle.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.architrave
+  level: part
+  label: Architrave
+  slug: architrave
+  parents: [component.window, component.door, component.internal_wall]
+  synonyms: []
+  definition: Trim covering the junction between frame and lining.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.back_pan
+  level: part
+  label: Back Pan
+  slug: back_pan
+  parents: [component.curtain_wall]
+  synonyms: [backpan]
+  definition: Metal tray closing the rear of a spandrel zone.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.backer_rod
+  level: part
+  label: Backer Rod
+  slug: backer_rod
+  parents: [component.movement_joint]
+  synonyms: [backerod, foam rod]
+  definition: Foam rod setting sealant joint depth and profile.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.ballast
+  level: part
+  label: Ballast
+  slug: ballast
+  parents: [component.roof]
+  synonyms: []
+  definition: Loose stone holding down an inverted roof build-up.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.base_fixing
+  level: part
+  label: Base Fixing
+  slug: base_fixing
+  parents: [component.balustrade]
+  synonyms: [base shoe, channel fixing]
+  definition: Clamp or channel fixing the balustrade at its base.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.base_flashing
+  level: part
+  label: Base Flashing
+  slug: base_flashing
+  parents: [component.balustrade]
+  synonyms: []
+  definition: Flashing weathering the balustrade base junction.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.base_trim
+  level: part
+  label: Base Trim
+  slug: base_trim
+  parents: [component.external_wall, component.facade_cladding]
+  synonyms: []
+  definition: Trim closing the cladding at its base.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.balustrade_fixing
+  level: part
+  label: Balustrade Fixing
+  slug: balustrade_fixing
+  parents: [component.stair]
+  synonyms: [balustrade bracket, newel fixing]
+  definition: Bracket fixing a balustrade to stair structure.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.batten
+  level: part
+  label: Batten
+  slug: batten
+  parents: [component.external_wall]
+  synonyms: [furring channel, top hat]
+  definition: Strip forming the cladding cavity off the frame.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.benchtop
+  level: part
+  label: Benchtop
+  slug: benchtop
+  parents: [component.joinery_fitout]
+  synonyms: [bench top, countertop]
+  definition: Work surface over joinery carcass.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.blind
+  level: part
+  label: Blind
+  slug: blind
+  parents: [component.skylight]
+  synonyms: [skylight blind]
+  definition: Shading blind fitted to a skylight.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.bond_breaker
+  level: part
+  label: Bond Breaker
+  slug: bond_breaker
+  parents: [component.movement_joint]
+  synonyms: [bondbreaker tape]
+  definition: Tape stopping sealant bonding to three sides.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.bracket
+  level: part
+  label: Bracket
+  slug: bracket
+  parents: [component.curtain_wall, component.facade_cladding]
+  synonyms: []
+  definition: Metal bracket carrying facade loads to structure.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.bulkhead
+  level: part
+  label: Bulkhead
+  slug: bulkhead
+  parents: [component.ceiling]
+  synonyms: []
+  definition: Dropped ceiling section concealing services or structure.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.capping
+  level: part
+  label: Capping
+  slug: capping
+  parents: [component.curtain_wall, component.roof, component.balustrade, component.parapet]
+  synonyms: [cap, coping, cover cap, pressure cap]
+  definition: Profile closing the top of an assembly, shedding water.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.carcass
+  level: part
+  label: Carcass
+  slug: carcass
+  parents: [component.joinery_fitout]
+  synonyms: [cabinet carcass]
+  definition: Structural box of a joinery unit.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.cavity
+  level: part
+  label: Cavity
+  slug: cavity
+  parents: [component.external_wall, component.facade_cladding]
+  synonyms: []
+  definition: Drained air gap behind the outer skin.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.cavity_barrier
+  level: part
+  label: Cavity Barrier
+  slug: cavity_barrier
+  parents: [component.external_wall]
+  synonyms: [cavity closer, cavity stop]
+  definition: Fire and smoke stop closing a wall cavity.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.cladding
+  level: part
+  label: Cladding
+  slug: cladding
+  parents: [component.external_wall]
+  synonyms: []
+  definition: Outer weather skin of the wall build-up.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.closer
+  level: part
+  label: Closer
+  slug: closer
+  parents: [component.door]
+  synonyms: [door closer]
+  definition: Device shutting a door leaf automatically.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.corner_trim
+  level: part
+  label: Corner Trim
+  slug: corner_trim
+  parents: [component.facade_cladding]
+  synonyms: [corner flashing]
+  definition: Trim closing a cladding outside corner.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.cover_plate
+  level: part
+  label: Cover Plate
+  slug: cover_plate
+  parents: [component.movement_joint, component.services_penetration]
+  synonyms: [coverplate]
+  definition: Plate bridging a joint or penetration opening.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.damp_proof_course
+  level: part
+  label: Damp Proof Course
+  slug: damp_proof_course
+  parents: [component.external_wall, component.substructure]
+  synonyms: [dpc, dampcourse]
+  definition: Layer blocking rising damp through masonry.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.deck
+  level: part
+  label: Deck
+  slug: deck
+  parents: [component.roof]
+  synonyms: [roof deck, metal deck]
+  definition: Structural tray carrying the roof build-up.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.door_front
+  level: part
+  label: Door Front
+  slug: door_front
+  parents: [component.joinery_fitout]
+  synonyms: [cupboard door]
+  definition: Hinged or sliding face of a joinery unit.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.downpipe
+  level: part
+  label: Downpipe
+  slug: downpipe
+  parents: [component.roof]
+  synonyms: [down pipe, rainwater pipe]
+  definition: Pipe draining gutter water to ground.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.drainage
+  level: part
+  label: Drainage
+  slug: drainage
+  parents: [component.substructure, component.external_works]
+  synonyms: [drain, ag drain]
+  definition: Pipes and aggregate carrying water away.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.drainage_grate
+  level: part
+  label: Drainage Grate
+  slug: drainage_grate
+  parents: [component.waterproofing, component.threshold]
+  synonyms: [grate, strip drain, channel grate]
+  definition: Grated channel collecting surface water.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.drainage_layer
+  level: part
+  label: Drainage Layer
+  slug: drainage_layer
+  parents: [component.roof, component.waterproofing]
+  synonyms: [drainage cell, drainage mat]
+  definition: Voided layer draining water to outlets.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.drop_seal
+  level: part
+  label: Drop Seal
+  slug: drop_seal
+  parents: [component.door]
+  synonyms: [dropseal, automatic door seal]
+  definition: Seal dropping to the floor as the door closes.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.eave
+  level: part
+  label: Eave
+  slug: eave
+  parents: [component.roof]
+  synonyms: [eaves]
+  definition: Roof edge overhanging the wall below.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.edge_profile
+  level: part
+  label: Edge Profile
+  slug: edge_profile
+  parents: [component.joinery_fitout]
+  synonyms: [edge strip, arris]
+  definition: Finished edge to a benchtop or panel.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.edge_restraint
+  level: part
+  label: Edge Restraint
+  slug: edge_restraint
+  parents: [component.external_works]
+  synonyms: [edge beam, haunching]
+  definition: Restraint holding paving edges against spread.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.edge_trim
+  level: part
+  label: Edge Trim
+  slug: edge_trim
+  parents: [component.floor]
+  synonyms: [edge angle]
+  definition: Trim protecting a slab or topping edge.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.finish
+  level: part
+  label: Finish
+  slug: finish
+  parents: [component.external_wall, component.internal_wall, component.floor, component.stair, component.threshold]
+  synonyms: [floor finish, wall finish]
+  definition: Exposed wearing or decorative surface.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.finish_transition
+  level: part
+  label: Finish Transition
+  slug: finish_transition
+  parents: [component.threshold]
+  synonyms: [transition strip, divider strip]
+  definition: Strip between two adjoining floor finishes.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.fire_collar
+  level: part
+  label: Fire Collar
+  slug: fire_collar
+  parents: [component.internal_wall, component.services_penetration]
+  synonyms: []
+  definition: Intumescent collar sealing a service penetration in fire.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.fire_stop
+  level: part
+  label: Fire Stop
+  slug: fire_stop
+  parents: [component.curtain_wall, component.movement_joint]
+  synonyms: [fire stopping, fire pillow]
+  definition: Rated barrier closing a concealed void against fire.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.fixing
+  level: part
+  label: Fixing
+  slug: fixing
+  parents: [component.facade_cladding, component.joinery_fitout]
+  synonyms: [fixings, fastener, screw]
+  definition: Mechanical fastener holding components together.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.flashing
+  level: part
+  label: Flashing
+  slug: flashing
+  parents: [component.window, component.external_wall, component.roof, component.parapet, component.skylight, component.services_penetration]
+  synonyms: []
+  definition: Folded metal weathering a junction against water.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.footing
+  level: part
+  label: Footing
+  slug: footing
+  parents: [component.substructure]
+  synonyms: [footings, foundation]
+  definition: Concrete element spreading loads to ground.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.frame
+  level: part
+  label: Frame
+  slug: frame
+  parents: [component.window, component.door, component.skylight]
+  synonyms: [window frame, door frame]
+  definition: Fixed perimeter holding the leaf or glazing.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.gap_closure
+  level: part
+  label: Gap Closure
+  slug: gap_closure
+  parents: [component.balustrade]
+  synonyms: [gap filler]
+  definition: Closure battening a balustrade base gap.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.gasket
+  level: part
+  label: Gasket
+  slug: gasket
+  parents: [component.curtain_wall, component.facade_cladding, component.movement_joint]
+  synonyms: [rubber gasket, epdm gasket]
+  definition: Compressible seal between facade components.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.glass_clamp
+  level: part
+  label: Glass Clamp
+  slug: glass_clamp
+  parents: [component.balustrade]
+  synonyms: [glass grip, stand-off]
+  definition: Clamp gripping frameless glass to structure.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.glazing_unit
+  level: part
+  label: Glazing Unit
+  slug: glazing_unit
+  parents: [component.window, component.curtain_wall, component.door, component.balustrade]
+  synonyms: [glazing, glass unit, igu, double glazed unit]
+  definition: Sealed assembly of glass panes in a frame.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.gutter
+  level: part
+  label: Gutter
+  slug: gutter
+  parents: [component.roof]
+  synonyms: [eaves gutter, box gutter]
+  definition: Channel collecting roof water to downpipes.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.handrail
+  level: part
+  label: Handrail
+  slug: handrail
+  parents: [component.stair, component.balustrade]
+  synonyms: [hand rail]
+  definition: Rail grasped for support on stairs and edges.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.hanger
+  level: part
+  label: Hanger
+  slug: hanger
+  parents: [component.ceiling]
+  synonyms: [ceiling hanger, suspension rod]
+  definition: Rod suspending the ceiling grid from structure.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.hardware
+  level: part
+  label: Hardware
+  slug: hardware
+  parents: [component.window, component.door, component.joinery_fitout]
+  synonyms: [ironmongery, handles]
+  definition: Hinges, handles and locks operating the unit.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.head
+  level: part
+  label: Head
+  slug: head
+  parents: [component.window, component.door]
+  synonyms: []
+  definition: Top member of an opening frame.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.head_trim
+  level: part
+  label: Head Trim
+  slug: head_trim
+  parents: [component.facade_cladding]
+  synonyms: []
+  definition: Trim closing cladding at an opening head.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.hob
+  level: part
+  label: Hob
+  slug: hob
+  parents: [component.waterproofing]
+  synonyms: []
+  definition: Raised kerb turning membrane up at an edge.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.infill_panel
+  level: part
+  label: Infill Panel
+  slug: infill_panel
+  parents: [component.balustrade]
+  synonyms: [infill, balustrade panel]
+  definition: Panel filling between balustrade posts or rails.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.insect_screen
+  level: part
+  label: Insect Screen
+  slug: insect_screen
+  parents: [component.window]
+  synonyms: [flyscreen, fly screen]
+  definition: Mesh screen excluding insects from an opening.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.insulation
+  level: part
+  label: Insulation
+  slug: insulation
+  parents: [component.curtain_wall, component.external_wall, component.internal_wall, component.facade_cladding, component.roof, component.floor, component.ceiling, component.parapet, component.soffit, component.substructure]
+  synonyms: [batts, insulation batts]
+  definition: Material resisting heat flow through the build-up.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.jamb
+  level: part
+  label: Jamb
+  slug: jamb
+  parents: [component.window, component.door]
+  synonyms: []
+  definition: Side member of an opening frame.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.jamb_liner
+  level: part
+  label: Jamb Liner
+  slug: jamb_liner
+  parents: [component.door]
+  synonyms: [liner, jamb lining, door liner]
+  definition: Lining finishing a door jamb reveal.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.joint_gap
+  level: part
+  label: Joint Gap
+  slug: joint_gap
+  parents: [component.movement_joint]
+  synonyms: [movement gap]
+  definition: Open gap sized for expected movement.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.kerb
+  level: part
+  label: Kerb
+  slug: kerb
+  parents: [component.external_works]
+  synonyms: [curb]
+  definition: Raised edge between paving and road or bed.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.kick_plate
+  level: part
+  label: Kick Plate
+  slug: kick_plate
+  parents: [component.door]
+  synonyms: [kicker plate, push plate]
+  definition: Sacrificial plate protecting a door base.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.kickboard
+  level: part
+  label: Kickboard
+  slug: kickboard
+  parents: [component.joinery_fitout]
+  synonyms: [plinth, toe kick]
+  definition: Recessed base under joinery units.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.landing
+  level: part
+  label: Landing
+  slug: landing
+  parents: [component.stair]
+  synonyms: []
+  definition: Flat platform between stair flights.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.leaf
+  level: part
+  label: Leaf
+  slug: leaf
+  parents: [component.door]
+  synonyms: [door leaf]
+  definition: Hinged or sliding panel of a door.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.level_change
+  level: part
+  label: Level Change
+  slug: level_change
+  parents: [component.threshold]
+  synonyms: [step, level threshold]
+  definition: Stepped change between inside and outside levels.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.lining
+  level: part
+  label: Lining
+  slug: lining
+  parents: [component.external_wall, component.internal_wall, component.ceiling, component.parapet, component.soffit]
+  synonyms: [wall lining, plasterboard lining]
+  definition: Internal sheet skin over frame or masonry.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.membrane
+  level: part
+  label: Membrane
+  slug: membrane
+  parents: [component.external_wall, component.facade_cladding, component.floor, component.parapet, component.substructure, component.waterproofing]
+  synonyms: [sarking, building wrap]
+  definition: Sheet or liquid layer controlling water or vapour.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.membrane_bridge
+  level: part
+  label: Membrane Bridge
+  slug: membrane_bridge
+  parents: [component.movement_joint]
+  synonyms: []
+  definition: Slack membrane spanning a movement gap.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.movement_joint
+  level: part
+  label: Movement Joint
+  slug: movement_joint
+  parents: [component.curtain_wall, component.floor, component.external_works]
+  synonyms: [movement joint, expansion joint]
+  definition: Jointed break of the part level inside an assembly.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.mullion
+  level: part
+  label: Mullion
+  slug: mullion
+  parents: [component.window, component.curtain_wall]
+  synonyms: []
+  definition: Vertical member dividing glazing.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.nosing
+  level: part
+  label: Nosing
+  slug: nosing
+  parents: [component.stair]
+  synonyms: [stair nosing]
+  definition: Projecting front edge of a tread.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.open_joint
+  level: part
+  label: Open Joint
+  slug: open_joint
+  parents: [component.facade_cladding]
+  synonyms: [open jointed, expressed joint]
+  definition: Drained open gap between cladding panels.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.overflow
+  level: part
+  label: Overflow
+  slug: overflow
+  parents: [component.parapet]
+  synonyms: [overflow outlet, rainhead overflow]
+  definition: Secondary outlet when primary drainage blocks.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.packer_shim
+  level: part
+  label: Packer Shim
+  slug: packer_shim
+  parents: [component.window]
+  synonyms: [packer, packers, shim, glazing packer]
+  definition: Small block setting glazing or frame position.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.panel
+  level: part
+  label: Panel
+  slug: panel
+  parents: [component.facade_cladding]
+  synonyms: [cladding panel]
+  definition: Single sheet unit of the cladding skin.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.paver
+  level: part
+  label: Paver
+  slug: paver
+  parents: [component.roof]
+  synonyms: [roof paver, ballast paver]
+  definition: Liftable paving unit over a roof build-up.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.paving
+  level: part
+  label: Paving
+  slug: paving
+  parents: [component.external_works]
+  synonyms: [pavers, pavement]
+  definition: Hard ground surface for walking or driving.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.penetration_collar
+  level: part
+  label: Penetration Collar
+  slug: penetration_collar
+  parents: [component.roof]
+  synonyms: [roof collar, pipe flashing]
+  definition: Flashed collar weathering a roof penetration.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.perimeter_trim
+  level: part
+  label: Perimeter Trim
+  slug: perimeter_trim
+  parents: [component.ceiling]
+  synonyms: [ceiling trim, cornice]
+  definition: Trim closing the ceiling at its perimeter.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.planter_edge
+  level: part
+  label: Planter Edge
+  slug: planter_edge
+  parents: [component.external_works]
+  synonyms: [planter wall]
+  definition: Edge retaining a raised planting bed.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.post
+  level: part
+  label: Post
+  slug: post
+  parents: [component.balustrade]
+  synonyms: [balustrade post, newel]
+  definition: Vertical support of a balustrade run.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.pressure_plate
+  level: part
+  label: Pressure Plate
+  slug: pressure_plate
+  parents: [component.curtain_wall]
+  synonyms: [pressure bar]
+  definition: Bar clamping glazing against the mullion.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.primer
+  level: part
+  label: Primer
+  slug: primer
+  parents: [component.waterproofing]
+  synonyms: []
+  definition: Preparatory coat bonding membrane to substrate.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.protection_board
+  level: part
+  label: Protection Board
+  slug: protection_board
+  parents: [component.waterproofing]
+  synonyms: [protection sheet]
+  definition: Board shielding membrane from backfill damage.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.puddle_flange
+  level: part
+  label: Puddle Flange
+  slug: puddle_flange
+  parents: [component.waterproofing]
+  synonyms: [puddleflange, drain flange]
+  definition: Flanged outlet draining a waterproofed floor.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.quirk
+  level: part
+  label: Quirk
+  slug: quirk
+  parents: [component.door, component.internal_wall]
+  synonyms: []
+  definition: Small recessed step expressed at a junction.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.ramp
+  level: part
+  label: Ramp
+  slug: ramp
+  parents: [component.threshold]
+  synonyms: []
+  definition: Sloped transition replacing a step at a threshold.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.reinforcing_fabric
+  level: part
+  label: Reinforcing Fabric
+  slug: reinforcing_fabric
+  parents: [component.waterproofing]
+  synonyms: [reinforcement, reinforcing mat]
+  definition: Fabric embedded to strengthen liquid membrane.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.retaining_element
+  level: part
+  label: Retaining Element
+  slug: retaining_element
+  parents: [component.substructure]
+  synonyms: [retaining wall]
+  definition: Wall holding back ground at a level change.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.reveal_lining
+  level: part
+  label: Reveal Lining
+  slug: reveal_lining
+  parents: [component.window]
+  synonyms: [reveal, window reveal]
+  definition: Lining finishing the reveal of an opening.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.ridge
+  level: part
+  label: Ridge
+  slug: ridge
+  parents: [component.roof]
+  synonyms: [ridge capping]
+  definition: Apex where two roof planes meet.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.riser
+  level: part
+  label: Riser
+  slug: riser
+  parents: [component.stair]
+  synonyms: []
+  definition: Vertical face between stair treads.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.screed
+  level: part
+  label: Screed
+  slug: screed
+  parents: [component.floor]
+  synonyms: []
+  definition: Levelled bed under a floor finish.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.screed_to_fall
+  level: part
+  label: Screed To Fall
+  slug: screed_to_fall
+  parents: [component.waterproofing]
+  synonyms: [screed, falls screed]
+  definition: Screed graded to drain water to outlets.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.seal
+  level: part
+  label: Seal
+  slug: seal
+  parents: [component.services_penetration]
+  synonyms: [penetration seal]
+  definition: Sealing around services at a penetration.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.seal_gasket
+  level: part
+  label: Seal Gasket
+  slug: seal_gasket
+  parents: [component.window, component.door, component.threshold, component.skylight]
+  synonyms: [weather seal, bubble seal]
+  definition: Flexible gasket weathering an opening leaf.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.sealant
+  level: part
+  label: Sealant
+  slug: sealant
+  parents: [component.movement_joint]
+  synonyms: [joint sealant, silicone]
+  definition: Flexible compound sealing a joint against weather.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.sealant_joint
+  level: part
+  label: Sealant Joint
+  slug: sealant_joint
+  parents: [component.external_wall]
+  synonyms: [sealed joint]
+  definition: Gunnable joint between wall elements.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.service_chase
+  level: part
+  label: Service Chase
+  slug: service_chase
+  parents: [component.internal_wall]
+  synonyms: [chase, service cavity]
+  definition: Concealed void carrying services in a wall.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.service_penetration
+  level: part
+  label: Service Penetration
+  slug: service_penetration
+  parents: [component.ceiling]
+  synonyms: [service opening]
+  definition: Sleeved opening for services through a ceiling.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.setdown
+  level: part
+  label: Setdown
+  slug: setdown
+  parents: [component.floor]
+  synonyms: [set down, rebate]
+  definition: Lowered slab zone for wet areas or falls.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.shading_device
+  level: part
+  label: Shading Device
+  slug: shading_device
+  parents: [component.window]
+  synonyms: [sun shade, louvre, brise soleil]
+  definition: External element cutting solar gain at glazing.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.shadowline
+  level: part
+  label: Shadowline
+  slug: shadowline
+  parents: [component.internal_wall, component.ceiling, component.joinery_fitout]
+  synonyms: [shadow line, shadowline bead]
+  definition: Recessed bead casting a shadow gap at a junction.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.sheathing
+  level: part
+  label: Sheathing
+  slug: sheathing
+  parents: [component.external_wall]
+  synonyms: [wall sheathing, rigid sheathing]
+  definition: Rigid board bracing and backing the wall frame.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.sill
+  level: part
+  label: Sill
+  slug: sill
+  parents: [component.window, component.threshold]
+  synonyms: [cill, window sill]
+  definition: Bottom member of an opening shedding water outward.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.skirting
+  level: part
+  label: Skirting
+  slug: skirting
+  parents: [component.internal_wall, component.floor]
+  synonyms: [skirting board]
+  definition: Trim covering the wall-floor junction.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.slab
+  level: part
+  label: Slab
+  slug: slab
+  parents: [component.floor]
+  synonyms: [concrete slab]
+  definition: Structural concrete plate of the floor.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.slab_edge
+  level: part
+  label: Slab Edge
+  slug: slab_edge
+  parents: [component.substructure]
+  synonyms: [edge beam]
+  definition: Thickened edge of a ground slab.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.slab_edge_interface
+  level: part
+  label: Slab Edge Interface
+  slug: slab_edge_interface
+  parents: [component.curtain_wall]
+  synonyms: [slab edge cover]
+  definition: Facade closure where the slab meets the curtain wall.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.sleeve
+  level: part
+  label: Sleeve
+  slug: sleeve
+  parents: [component.services_penetration]
+  synonyms: [penetration sleeve, pipe sleeve]
+  definition: Tube sleeving services through construction.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.smoke_seal
+  level: part
+  label: Smoke Seal
+  slug: smoke_seal
+  parents: [component.curtain_wall]
+  synonyms: []
+  definition: Seal limiting smoke spread at the slab edge.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.soffit_trim
+  level: part
+  label: Soffit Trim
+  slug: soffit_trim
+  parents: [component.facade_cladding]
+  synonyms: []
+  definition: Trim closing cladding at a soffit junction.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.soffit
+  level: part
+  label: Soffit
+  slug: soffit
+  parents: [component.stair]
+  synonyms: [stair soffit]
+  definition: Exposed underside of a stair flight or landing.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.spandrel_panel
+  level: part
+  label: Spandrel Panel
+  slug: spandrel_panel
+  parents: [component.curtain_wall]
+  synonyms: [spandrel]
+  definition: Opaque panel masking floor zones in glazing.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.splashback
+  level: part
+  label: Splashback
+  slug: splashback
+  parents: [component.joinery_fitout]
+  synonyms: [splash back, upstand]
+  definition: Wipeable lining behind a benchtop.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.stopping_angle
+  level: part
+  label: Stopping Angle
+  slug: stopping_angle
+  parents: [component.door, component.internal_wall]
+  synonyms: [stopping bead]
+  definition: Angle stopping plaster at a door or wall end.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.stringer
+  level: part
+  label: Stringer
+  slug: stringer
+  parents: [component.stair]
+  synonyms: [stair stringer]
+  definition: Inclined member carrying stair treads.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.structure
+  level: part
+  label: Structure
+  slug: structure
+  parents: [component.roof, component.parapet]
+  synonyms: [primary structure]
+  definition: Loadbearing frame of the assembly.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.structural_frame
+  level: part
+  label: Structural Frame
+  slug: structural_frame
+  parents: [component.external_wall, component.internal_wall]
+  synonyms: [studs, wall frame]
+  definition: Stud or post frame carrying wall loads.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.sub_sill
+  level: part
+  label: Sub Sill
+  slug: sub_sill
+  parents: [component.window]
+  synonyms: [subsill]
+  definition: Secondary sill under the window sill.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.subframe
+  level: part
+  label: Subframe
+  slug: subframe
+  parents: [component.facade_cladding, component.soffit]
+  synonyms: [sub-frame, support frame]
+  definition: Secondary frame carrying panels or lining.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.substrate
+  level: part
+  label: Substrate
+  slug: substrate
+  parents: [component.external_wall, component.internal_wall, component.external_works]
+  synonyms: []
+  definition: Background receiving finishes or membranes.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.suspension
+  level: part
+  label: Suspension
+  slug: suspension
+  parents: [component.ceiling]
+  synonyms: [suspended grid, furring]
+  definition: Grid hanging the ceiling lining below structure.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.termite_barrier
+  level: part
+  label: Termite Barrier
+  slug: termite_barrier
+  parents: [component.substructure]
+  synonyms: [termite protection, ant cap]
+  definition: Barrier forcing termites into the open at slab edges.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.termination
+  level: part
+  label: Termination
+  slug: termination
+  parents: [component.waterproofing]
+  synonyms: [termination bar]
+  definition: Clamped ending of membrane at an upstand top.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.thermal_break
+  level: part
+  label: Thermal Break
+  slug: thermal_break
+  parents: [component.curtain_wall, component.skylight]
+  synonyms: [thermal break, polyamide strip]
+  definition: Low-conductivity break in a metal frame.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.threshold
+  level: part
+  label: Threshold
+  slug: threshold
+  parents: [component.door]
+  synonyms: [door threshold unit]
+  definition: Threshold assembly within a door set.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.top_rail
+  level: part
+  label: Top Rail
+  slug: top_rail
+  parents: [component.balustrade]
+  synonyms: [toprail]
+  definition: Rail capping the top of a balustrade.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.topping
+  level: part
+  label: Topping
+  slug: topping
+  parents: [component.floor]
+  synonyms: [topping slab]
+  definition: Thin structural layer over a slab or deck.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.transom
+  level: part
+  label: Transom
+  slug: transom
+  parents: [component.window, component.curtain_wall]
+  synonyms: []
+  definition: Horizontal member dividing glazing.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.tread
+  level: part
+  label: Tread
+  slug: tread
+  parents: [component.stair]
+  synonyms: []
+  definition: Horizontal surface stepped upon.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.trickle_vent
+  level: part
+  label: Trickle Vent
+  slug: trickle_vent
+  parents: [component.window]
+  synonyms: [trickle ventilator]
+  definition: Slotted vent giving background ventilation.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.trim
+  level: part
+  label: Trim
+  slug: trim
+  parents: [component.soffit]
+  synonyms: []
+  definition: Cover strip at a soffit junction.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.upstand
+  level: part
+  label: Upstand
+  slug: upstand
+  parents: [component.roof, component.waterproofing, component.parapet, component.skylight]
+  synonyms: [kerb upstand]
+  definition: Raised turn-up of membrane at an edge or penetration.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.valley
+  level: part
+  label: Valley
+  slug: valley
+  parents: [component.roof]
+  synonyms: [valley gutter]
+  definition: Internal gutter where two roof planes meet.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.vapour_barrier
+  level: part
+  label: Vapour Barrier
+  slug: vapour_barrier
+  parents: [component.external_wall, component.roof]
+  synonyms: [vapor barrier, vapour control layer]
+  definition: Layer limiting vapour diffusion into the build-up.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.ventilation_gap
+  level: part
+  label: Ventilation Gap
+  slug: ventilation_gap
+  parents: [component.soffit]
+  synonyms: [vented gap, airflow gap]
+  definition: Vented gap behind a soffit lining.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.vision_panel
+  level: part
+  label: Vision Panel
+  slug: vision_panel
+  parents: [component.curtain_wall]
+  synonyms: [vision glass]
+  definition: Clear glazed zone between spandrels.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.walkway
+  level: part
+  label: Walkway
+  slug: walkway
+  parents: [component.roof]
+  synonyms: [roof walkway, maintenance path]
+  definition: Protected path for roof maintenance access.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.waterproofing
+  level: part
+  label: Waterproofing
+  slug: waterproofing
+  parents: [component.roof]
+  synonyms: [waterproof membrane]
+  definition: Membrane layer of the roof build-up.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.weatherbar
+  level: part
+  label: Weatherbar
+  slug: weatherbar
+  parents: [component.threshold]
+  synonyms: [weather bar]
+  definition: Raised bar shedding water at a door threshold.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: part.weep_hole
+  level: part
+  label: Weep Hole
+  slug: weep_hole
+  parents: [component.external_wall]
+  synonyms: [weep, weephole]
+  definition: Opening draining cavity water to outside.
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null

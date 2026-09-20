@@ -1,0 +1,79 @@
+# Seed Level 4 — fixing-method values under attr.fixing_method.
+nodes:
+- id: value.mechanical
+  level: value
+  label: Mechanical
+  slug: mechanical
+  parents: [attr.fixing_method]
+  synonyms: [screwed, bolted]
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: value.adhesive
+  level: value
+  label: Adhesive
+  slug: adhesive
+  parents: [attr.fixing_method]
+  synonyms: [glued, bonded]
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: value.welded
+  level: value
+  label: Welded
+  slug: welded
+  parents: [attr.fixing_method]
+  synonyms: []
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: value.clipped
+  level: value
+  label: Clipped
+  slug: clipped
+  parents: [attr.fixing_method]
+  synonyms: [clip-fixed]
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: value.structural_silicone
+  level: value
+  label: Structural Silicone
+  slug: structural_silicone
+  parents: [attr.fixing_method]
+  synonyms: [structural glazing, silicone fixed]
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: value.friction
+  level: value
+  label: Friction
+  slug: friction
+  parents: [attr.fixing_method]
+  synonyms: [friction fit, pressure fit]
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
+- id: value.cast_in
+  level: value
+  label: Cast In
+  slug: cast_in
+  parents: [attr.fixing_method]
+  synonyms: [cast-in, embedded]
+  status: approved
+  created_by: seed
+  created_at: '2026-03-04'
+  drawing_count: 0
+  deprecated_by: null
